@@ -57,9 +57,9 @@ Additional utility endpoints:
 - `POST /integrations/netbox/import`
 - `POST /integrations/backstage/sync`
 
-Mutating endpoints require service authentication:
+All endpoints except `/health` require service authentication:
 - `Authorization: Bearer <service-token>`
-- Calls are rate-limited per token and route
+- Mutating endpoints are rate-limited per token and route
 - Request bodies and bulk item counts are bounded
 
 ## Local Development
@@ -81,6 +81,9 @@ pip install -r requirements.txt
 cp .env.example .env
 uvicorn app.main:app --reload
 ```
+
+Optional for connector scripts:
+- `export SERVICE_AUTH_TOKEN=<service-token>`
 
 ## OpenAPI
 

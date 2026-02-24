@@ -3,6 +3,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.security import require_service_auth
 from app.models import CI, AuditEvent, Relationship
 from app.schemas import (
     AuditEventResponse,
@@ -13,7 +14,7 @@ from app.schemas import (
     RelationshipResponse,
 )
 
-router = APIRouter(tags=["cis"])
+router = APIRouter(tags=["cis"], dependencies=[Depends(require_service_auth)])
 
 
 def _to_ci_response(ci: CI) -> CIResponse:

@@ -5,9 +5,10 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.security import require_service_auth
 from app.services.audit import list_audit_events
 
-router = APIRouter(prefix="/audit", tags=["audit"])
+router = APIRouter(prefix="/audit", tags=["audit"], dependencies=[Depends(require_service_auth)])
 
 
 @router.get("/export", response_class=PlainTextResponse)

@@ -6,7 +6,7 @@ from app.core.security import require_mutation_rate_limit, require_service_auth
 from app.schemas import CollisionResolveRequest, CollisionResolveResponse, CollisionResponse
 from app.services.governance import list_open_collisions, resolve_collision
 
-router = APIRouter(prefix="/governance", tags=["governance"])
+router = APIRouter(prefix="/governance", tags=["governance"], dependencies=[Depends(require_service_auth)])
 
 
 @router.get("/collisions", response_model=list[CollisionResponse])
@@ -32,7 +32,6 @@ def get_open_collisions(db: Session = Depends(get_db)) -> list[CollisionResponse
 def resolve_governance_collision(
     collision_id: int,
     request: CollisionResolveRequest,
-    _auth_token: str = Depends(require_service_auth),
     _rate_limit: None = Depends(require_mutation_rate_limit),
     db: Session = Depends(get_db),
 ) -> CollisionResolveResponse:

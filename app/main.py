@@ -18,25 +18,22 @@ app.middleware("http")(correlation_middleware)
 
 
 async def request_size_middleware(request: Request, call_next):
-    if request.method in {"POST", "PUT", "PATCH"}:
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
         content_length = request.headers.get("content-length")
-        if content_length:
-            try:
-                if int(content_length) > settings.max_request_body_bytes:
-                    return JSONResponse(
-                        status_code=413,
-                        content={"detail": "Request body exceeds allowed size"},
-                    )
-            except ValueError:
-                return JSONResponse(status_code=400, content={"detail": "Invalid content-length header"})
+        if content_length is None:
+            return JSONResponse(status_code=411, content={"detail": "Content-Length header is required"})
+        try:
+            declared_size = int(content_length)
+        except ValueError:
+            return JSONResponse(status_code=400, content={"detail": "Invalid content-length header"})
 
-        body = await request.body()
-        if len(body) > settings.max_request_body_bytes:
+        if declared_size < 0:
+            return JSONResponse(status_code=400, content={"detail": "Invalid content-length header"})
+        if declared_size > settings.max_request_body_bytes:
             return JSONResponse(
                 status_code=413,
                 content={"detail": "Request body exceeds allowed size"},
             )
-        request._body = body
 
     return await call_next(request)
 

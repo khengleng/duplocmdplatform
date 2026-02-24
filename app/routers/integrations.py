@@ -13,7 +13,7 @@ from app.schemas import CIBulkIngestResult
 from app.services.integrations import fetch_netbox_cis, publish_backstage_bulk_cis
 from app.services.reconciliation import reconcile_ci_payload
 
-router = APIRouter(prefix="/integrations", tags=["integrations"])
+router = APIRouter(prefix="/integrations", tags=["integrations"], dependencies=[Depends(require_service_auth)])
 settings = get_settings()
 
 
@@ -122,7 +122,7 @@ def netbox_export(
 @router.post(
     "/netbox/import",
     response_model=CIBulkIngestResult,
-    dependencies=[Depends(require_service_auth), Depends(require_mutation_rate_limit)],
+    dependencies=[Depends(require_mutation_rate_limit)],
 )
 def netbox_import(
     limit: int = Query(default=500, ge=1, le=5000),
@@ -172,7 +172,7 @@ def netbox_import(
 
 @router.post(
     "/backstage/sync",
-    dependencies=[Depends(require_service_auth), Depends(require_mutation_rate_limit)],
+    dependencies=[Depends(require_mutation_rate_limit)],
 )
 def backstage_sync(
     limit: int = Query(default=500, ge=1, le=5000),
