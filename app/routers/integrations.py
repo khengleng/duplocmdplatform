@@ -138,7 +138,7 @@ def netbox_import(
     try:
         cis = fetch_netbox_cis(limit=limit)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail="NetBox integration is not configured") from exc
+        raise HTTPException(status_code=400, detail="NetBox integration is not configured or violates URL policy") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail="NetBox import failed") from exc
 

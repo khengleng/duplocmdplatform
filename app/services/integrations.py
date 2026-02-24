@@ -5,6 +5,7 @@ import json
 import logging
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -14,6 +15,23 @@ from app.schemas import CIPayload
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def _is_non_dev_environment() -> bool:
+    return settings.app_env.strip().lower() not in {"dev", "development", "local", "test"}
+
+
+def _validated_outbound_url(url: str, target: str) -> str:
+    value = url.strip()
+    if not value:
+        return ""
+    parsed = urlparse(value)
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"{target}_url_invalid")
+    if _is_non_dev_environment() and scheme != "https":
+        raise ValueError(f"{target}_url_requires_https")
+    return value
 
 
 def _authorization_value(token: str) -> str:
@@ -41,7 +59,12 @@ def _post_json(url: str, token: str, body: dict[str, Any], target: str) -> dict[
     if not url:
         return {"status": "skipped", "reason": f"{target}_url_missing"}
     try:
-        response = httpx.post(url, json=body, headers=_request_headers(token), timeout=20)
+        target_url = _validated_outbound_url(url, target)
+    except ValueError as exc:
+        logger.warning("Integration delivery blocked by URL policy", extra={"target": target, "reason": str(exc)})
+        return {"status": "failed", "error": "invalid_target_url"}
+    try:
+        response = httpx.post(target_url, json=body, headers=_request_headers(token), timeout=20)
         response.raise_for_status()
         return {"status": "sent", "status_code": response.status_code}
     except httpx.HTTPStatusError as exc:
@@ -222,7 +245,7 @@ def _publish_event(url: str, token: str, event_type: str, payload: dict[str, Any
 
 
 def _netbox_api_base_url() -> str:
-    base = settings.netbox_api_url.strip().rstrip("/")
+    base = _validated_outbound_url(settings.netbox_api_url, "netbox_api").rstrip("/")
     if not base:
         return ""
     if base.endswith("/api"):

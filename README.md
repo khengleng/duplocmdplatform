@@ -61,6 +61,7 @@ All endpoints except `/health` require service authentication:
 - `Authorization: Bearer <service-token>`
 - Mutating endpoints are rate-limited per token and route
 - Request bodies and bulk item counts are bounded
+- API docs are disabled by default (can be explicitly enabled and auth-protected)
 
 ## Local Development
 
@@ -107,6 +108,8 @@ Use these environment variables to activate outbound sync webhooks:
 
 - `UNIFIED_CMDB_NAME=unifiedCMDB`
 - `SERVICE_AUTH_TOKENS=<comma-separated bearer tokens allowed to call mutating/sync endpoints>`
+- `API_DOCS_ENABLED=false` (recommended in production)
+- `API_DOCS_REQUIRE_AUTH=true` (required if docs are enabled in production)
 - `MAX_REQUEST_BODY_BYTES=1048576`
 - `MAX_BULK_ITEMS=500`
 - `MUTATING_RATE_LIMIT_PER_MINUTE=120`
@@ -122,6 +125,11 @@ NetBox pull import configuration:
 
 - `NETBOX_API_URL=https://<netbox-host>` (or `.../api`)
 - `NETBOX_API_TOKEN=<Bearer nbt_<key>.<secret> token or raw token>`
+
+In non-dev environments, outbound integration URLs must use `https://`:
+- `NETBOX_SYNC_URL`
+- `BACKSTAGE_SYNC_URL`
+- `NETBOX_API_URL`
 
 If disabled, unifiedCMDB still provides pull-based integration endpoints for both projects.
 

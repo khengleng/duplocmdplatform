@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     app_name: str = "Thin CMDB Core"
     app_env: str = "dev"
     app_debug: bool = False
+    api_docs_enabled: bool = False
+    api_docs_require_auth: bool = True
     max_request_body_bytes: int = 1048576
     max_bulk_items: int = 500
     mutating_rate_limit_per_minute: int = 120
