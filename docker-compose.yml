@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: cmdb
+      POSTGRES_USER: cmdb
+      POSTGRES_PASSWORD: cmdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  cmdb-core:
+    build: .
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql+psycopg://cmdb:cmdb@db:5432/cmdb
+      SOURCE_PRECEDENCE: manual,azure,vcenter,zabbix,k8s
+      JIRA_ENABLED: "false"
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:
