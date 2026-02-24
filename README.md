@@ -32,7 +32,12 @@ This repository provides a thin CMDB Core service and stub connectors for:
 - Immutable append-only audit event table
 - ELK-friendly export endpoint: `GET /audit/export`
 
-5. REST API
+5. Sync Job Orchestration
+- Persistent queued/running/succeeded/failed sync jobs
+- Automatic retry with exponential backoff
+- Job status tracking endpoints and audit events
+
+6. REST API
 - `POST /ingest/cis:bulk`
 - `POST /ingest/relationships:bulk`
 - `GET /cis`
@@ -56,12 +61,17 @@ Additional utility endpoints:
 - `GET /integrations/netbox/export`
 - `POST /integrations/netbox/import`
 - `POST /integrations/backstage/sync`
+- `GET /integrations/netbox/watermarks`
+- `GET /integrations/jobs`
+- `GET /integrations/jobs/{jobId}`
 
 All endpoints except `/health` require service authentication:
 - `Authorization: Bearer <service-token>`
 - Mutating endpoints are rate-limited per token and route
 - Request bodies and bulk item counts are bounded
 - API docs are disabled by default (can be explicitly enabled and auth-protected)
+- NetBox import supports incremental watermark-based pulls
+- Integration sync can run synchronous or as background async jobs (`asyncJob=true`)
 
 ## Local Development
 
@@ -117,6 +127,9 @@ Use these environment variables to activate outbound sync webhooks:
 - `MAX_REQUEST_BODY_BYTES=1048576`
 - `MAX_BULK_ITEMS=500`
 - `MUTATING_RATE_LIMIT_PER_MINUTE=120`
+- `SYNC_JOB_MAX_ATTEMPTS=3`
+- `SYNC_JOB_RETRY_BASE_SECONDS=5`
+- `SYNC_WORKER_POLL_SECONDS=2`
 - `NETBOX_SYNC_ENABLED=true`
 - `NETBOX_SYNC_URL=https://<netbox-adapter-endpoint>`
 - `NETBOX_SYNC_TOKEN=<token>`
@@ -134,6 +147,9 @@ In non-dev environments, outbound integration URLs must use `https://`:
 - `NETBOX_SYNC_URL`
 - `BACKSTAGE_SYNC_URL`
 - `NETBOX_API_URL`
+
+Incremental NetBox imports persist watermarks in `sync_state` and can be viewed at:
+- `GET /integrations/netbox/watermarks`
 
 If disabled, unifiedCMDB still provides pull-based integration endpoints for both projects.
 

@@ -4,17 +4,45 @@ import hmac
 import json
 import logging
 import time
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.logging import correlation_id_ctx
+from app.models import CI, SyncState
 from app.schemas import CIPayload
+from app.services.reconciliation import reconcile_ci_payload
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+NETBOX_DEVICE_WATERMARK_KEY = "netbox.import.devices.last_updated"
+NETBOX_VM_WATERMARK_KEY = "netbox.import.vms.last_updated"
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def _to_iso_datetime(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.isoformat()
 
 
 def _is_non_dev_environment() -> bool:
@@ -271,7 +299,11 @@ def _netbox_extract_name(value: Any) -> str | None:
     return None
 
 
-def _netbox_collect(endpoint: str, max_items: int) -> list[dict[str, Any]]:
+def _netbox_collect(
+    endpoint: str,
+    max_items: int,
+    params: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], bool, datetime | None]:
     base_url = _netbox_api_base_url()
     auth_header = _netbox_auth_header_value()
     if not base_url:
@@ -286,8 +318,12 @@ def _netbox_collect(endpoint: str, max_items: int) -> list[dict[str, Any]]:
     }
 
     items: list[dict[str, Any]] = []
+    max_last_updated: datetime | None = None
+    exhausted = True
+    is_first_request = True
     while url and len(items) < max_items:
-        response = httpx.get(url, headers=headers, timeout=20)
+        response = httpx.get(url, headers=headers, timeout=20, params=params if is_first_request else None)
+        is_first_request = False
         response.raise_for_status()
         payload = response.json()
         results = payload.get("results")
@@ -296,20 +332,54 @@ def _netbox_collect(endpoint: str, max_items: int) -> list[dict[str, Any]]:
         for result in results:
             if isinstance(result, dict):
                 items.append(result)
+                parsed = _parse_iso_datetime(result.get("last_updated"))
+                if parsed and (max_last_updated is None or parsed > max_last_updated):
+                    max_last_updated = parsed
             if len(items) >= max_items:
                 break
         next_url = payload.get("next")
+        if isinstance(next_url, str) and next_url and len(items) >= max_items:
+            exhausted = False
+            break
         url = next_url if isinstance(next_url, str) and next_url else ""
-    return items
+    return items, exhausted, max_last_updated
 
 
 def fetch_netbox_cis(limit: int = 500) -> list[CIPayload]:
+    result = fetch_netbox_cis_incremental(limit=limit)
+    return result["cis"]
+
+
+def fetch_netbox_cis_incremental(
+    limit: int = 500,
+    since_devices: datetime | None = None,
+    since_vms: datetime | None = None,
+) -> dict[str, Any]:
     if limit < 1:
-        return []
+        return {
+            "cis": [],
+            "devices": {"fetched": 0, "exhausted": True, "max_last_updated": None},
+            "vms": {"fetched": 0, "exhausted": True, "max_last_updated": None},
+        }
 
     half = max(1, limit // 2)
-    device_records = _netbox_collect("/dcim/devices/?limit=100", max_items=half)
-    vm_records = _netbox_collect("/virtualization/virtual-machines/?limit=100", max_items=max(1, limit - half))
+    device_params: dict[str, Any] = {"limit": 100}
+    vm_params: dict[str, Any] = {"limit": 100}
+    if since_devices:
+        device_params["last_updated__gte"] = _to_iso_datetime(since_devices)
+    if since_vms:
+        vm_params["last_updated__gte"] = _to_iso_datetime(since_vms)
+
+    device_records, device_exhausted, device_max_last_updated = _netbox_collect(
+        "/dcim/devices/",
+        max_items=half,
+        params=device_params,
+    )
+    vm_records, vm_exhausted, vm_max_last_updated = _netbox_collect(
+        "/virtualization/virtual-machines/",
+        max_items=max(1, limit - half),
+        params=vm_params,
+    )
 
     payloads: list[CIPayload] = []
     for record in device_records:
@@ -381,7 +451,126 @@ def fetch_netbox_cis(limit: int = 500) -> list[CIPayload]:
             )
         )
 
-    return payloads[:limit]
+    return {
+        "cis": payloads[:limit],
+        "devices": {
+            "fetched": len(device_records),
+            "exhausted": device_exhausted,
+            "max_last_updated": _to_iso_datetime(device_max_last_updated),
+        },
+        "vms": {
+            "fetched": len(vm_records),
+            "exhausted": vm_exhausted,
+            "max_last_updated": _to_iso_datetime(vm_max_last_updated),
+        },
+    }
+
+
+def _read_sync_state(db: Session, key: str) -> str | None:
+    state = db.get(SyncState, key)
+    return state.value if state else None
+
+
+def _write_sync_state(db: Session, key: str, value: str) -> None:
+    state = db.get(SyncState, key)
+    if state is None:
+        db.add(SyncState(key=key, value=value))
+        return
+    state.value = value
+
+
+def get_netbox_watermarks(db: Session) -> dict[str, str | None]:
+    return {
+        "devices_last_updated": _read_sync_state(db, NETBOX_DEVICE_WATERMARK_KEY),
+        "vms_last_updated": _read_sync_state(db, NETBOX_VM_WATERMARK_KEY),
+    }
+
+
+def run_netbox_import(
+    db: Session,
+    limit: int,
+    dry_run: bool = False,
+    incremental: bool = True,
+) -> dict[str, Any]:
+    since_devices: datetime | None = None
+    since_vms: datetime | None = None
+    if incremental:
+        since_devices = _parse_iso_datetime(_read_sync_state(db, NETBOX_DEVICE_WATERMARK_KEY))
+        since_vms = _parse_iso_datetime(_read_sync_state(db, NETBOX_VM_WATERMARK_KEY))
+
+    batch = fetch_netbox_cis_incremental(
+        limit=limit,
+        since_devices=since_devices,
+        since_vms=since_vms,
+    )
+
+    created = 0
+    updated = 0
+    collisions = 0
+
+    for ci_payload in batch["cis"]:
+        _, is_created, ci_collisions = reconcile_ci_payload(db, source="netbox", payload=ci_payload)
+        collisions += ci_collisions
+        if is_created:
+            created += 1
+        else:
+            updated += 1
+
+    staged = created + updated if dry_run else 0
+    watermarks = get_netbox_watermarks(db)
+    if not dry_run and incremental:
+        devices_max = batch["devices"].get("max_last_updated")
+        if batch["devices"].get("exhausted") and isinstance(devices_max, str) and devices_max:
+            _write_sync_state(db, NETBOX_DEVICE_WATERMARK_KEY, devices_max)
+            watermarks["devices_last_updated"] = devices_max
+
+        vms_max = batch["vms"].get("max_last_updated")
+        if batch["vms"].get("exhausted") and isinstance(vms_max, str) and vms_max:
+            _write_sync_state(db, NETBOX_VM_WATERMARK_KEY, vms_max)
+            watermarks["vms_last_updated"] = vms_max
+
+    return {
+        "created": created,
+        "updated": updated,
+        "collisions": collisions,
+        "staged": staged,
+        "errors": [],
+        "fetched": len(batch["cis"]),
+        "incremental": incremental,
+        "watermarks": watermarks,
+    }
+
+
+def run_backstage_sync(
+    db: Session,
+    limit: int,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    cis = list(db.scalars(select(CI).order_by(CI.updated_at.desc()).limit(limit)))
+    items = []
+    for ci in cis:
+        attributes = ci.attributes if isinstance(ci.attributes, dict) else {}
+        items.append(
+            {
+                "id": ci.id,
+                "name": ci.name,
+                "ci_type": ci.ci_type,
+                "owner": ci.owner,
+                "status": ci.status.value,
+                "sourceSystem": ci.source,
+                "environment": attributes.get("environment", "unknown"),
+                "supportGroup": attributes.get("support_group"),
+                "identities": [
+                    {"scheme": "cmdb_ci_id", "value": ci.id},
+                    {"scheme": "canonical_name", "value": ci.name},
+                ],
+                "attributes": attributes,
+            }
+        )
+
+    result = publish_backstage_bulk_cis(items=items, dry_run=dry_run)
+    result["selected"] = len(items)
+    return result
 
 
 def publish_ci_event(event_type: str, payload: dict[str, Any]) -> dict[str, dict[str, Any]]:

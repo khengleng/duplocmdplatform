@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     max_request_body_bytes: int = 1048576
     max_bulk_items: int = 500
     mutating_rate_limit_per_minute: int = 120
+    sync_job_max_attempts: int = 3
+    sync_job_retry_base_seconds: int = 5
+    sync_worker_poll_seconds: int = 2
 
     database_url: str = "sqlite:///./cmdb.db"
 

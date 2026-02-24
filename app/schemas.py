@@ -3,7 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.models import CIStatus, CollisionStatus
+from app.models import CIStatus, CollisionStatus, SyncJobStatus
 
 
 class IdentityPayload(BaseModel):
@@ -135,3 +135,26 @@ class LifecycleRunResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str = "ok"
+
+
+class IntegrationJobCreateResponse(BaseModel):
+    job_id: str
+    job_type: str
+    status: SyncJobStatus
+    queued_at: datetime
+
+
+class IntegrationJobResponse(BaseModel):
+    id: str
+    job_type: str
+    status: SyncJobStatus
+    requested_by: str | None = None
+    payload: dict[str, Any]
+    result: dict[str, Any] | None = None
+    last_error: str | None = None
+    attempt_count: int
+    max_attempts: int
+    next_run_at: datetime
+    created_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None

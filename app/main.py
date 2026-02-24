@@ -11,6 +11,7 @@ from app.core.logging import configure_logging, correlation_middleware
 from app.core.security import require_service_auth
 from app.routers import audit, cis, governance, ingest, integrations, lifecycle
 from app.schemas import HealthResponse
+from app.services.sync_jobs import start_sync_worker, stop_sync_worker
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -80,7 +81,13 @@ if settings.api_docs_enabled:
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
+    start_sync_worker()
     logger.info("Thin CMDB Core started")
+
+
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    stop_sync_worker()
 
 
 @app.get("/health", response_model=HealthResponse, tags=["health"])
