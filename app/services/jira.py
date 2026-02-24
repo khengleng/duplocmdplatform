@@ -1,4 +1,5 @@
 import logging
+from base64 import b64encode
 from typing import Any
 
 import httpx
@@ -27,7 +28,10 @@ class JiraClient:
         }
 
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
-        if self.settings.jira_token:
+        if self.settings.jira_email and self.settings.jira_api_token:
+            credentials = f"{self.settings.jira_email}:{self.settings.jira_api_token}".encode("utf-8")
+            headers["Authorization"] = f"Basic {b64encode(credentials).decode('utf-8')}"
+        elif self.settings.jira_token:
             headers["Authorization"] = f"Bearer {self.settings.jira_token}"
 
         url = self.settings.jira_base_url.rstrip("/") + "/rest/api/2/issue"

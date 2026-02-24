@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     jira_enabled: bool = False
     jira_base_url: str = ""
     jira_project_key: str = "CMDB"
+    jira_email: str = ""
+    jira_api_token: str = ""
     jira_token: str = ""
 
     unified_cmdb_name: str = "unifiedCMDB"

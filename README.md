@@ -98,7 +98,11 @@ Jira integration is enabled with environment variables:
 - `JIRA_ENABLED=true`
 - `JIRA_BASE_URL=https://your-jira.example.com`
 - `JIRA_PROJECT_KEY=CMDB`
-- `JIRA_TOKEN=<token>`
+- `JIRA_EMAIL=<your-atlassian-email>`
+- `JIRA_API_TOKEN=<jira-api-token>`
+
+Legacy fallback (non-Atlassian or custom gateway):
+- `JIRA_TOKEN=<bearer-token>`
 
 If disabled, issue creation is logged and skipped.
 
