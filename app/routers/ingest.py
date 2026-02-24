@@ -6,7 +6,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.security import require_mutation_rate_limit, require_service_auth
 from app.models import CI, Identity, Relationship
 from app.schemas import (
     CIBulkIngestResult,
@@ -19,7 +21,13 @@ from app.services.audit import append_audit_event
 from app.services.integrations import publish_ci_event
 from app.services.reconciliation import reconcile_ci_payload
 
-router = APIRouter(prefix="/ingest", tags=["ingest"])
+settings = get_settings()
+
+router = APIRouter(
+    prefix="/ingest",
+    tags=["ingest"],
+    dependencies=[Depends(require_service_auth), Depends(require_mutation_rate_limit)],
+)
 
 
 def _ci_event_payload(ci: CI, source: str) -> dict[str, Any]:
@@ -50,6 +58,11 @@ def _parse_ci_bulk_request(payload: dict[str, Any]) -> tuple[str, list[CIPayload
 
     if not isinstance(raw_items, list):
         raise HTTPException(status_code=422, detail="'cis/items' must be a list")
+    if len(raw_items) > settings.max_bulk_items:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many CI items in a single request (max {settings.max_bulk_items})",
+        )
 
     cis: list[CIPayload] = []
     for raw in raw_items:
@@ -106,6 +119,11 @@ def _parse_relationship_bulk_request(payload: dict[str, Any]) -> tuple[str, list
 
     if not isinstance(raw_items, list):
         raise HTTPException(status_code=422, detail="'relationships/items' must be a list")
+    if len(raw_items) > settings.max_bulk_items:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many relationship items in a single request (max {settings.max_bulk_items})",
+        )
 
     relationships: list[RelationshipPayload] = []
     for raw in raw_items:
@@ -161,7 +179,7 @@ def ingest_cis_bulk(
             db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail=f"Integrity error: {exc.orig}") from exc
+        raise HTTPException(status_code=409, detail="Ingest conflict") from exc
 
     if not dry_run:
         for event_type, event_payload in events:

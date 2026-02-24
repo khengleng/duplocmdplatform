@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.security import require_mutation_rate_limit, require_service_auth
 from app.schemas import CollisionResolveRequest, CollisionResolveResponse, CollisionResponse
 from app.services.governance import list_open_collisions, resolve_collision
 
@@ -31,6 +32,8 @@ def get_open_collisions(db: Session = Depends(get_db)) -> list[CollisionResponse
 def resolve_governance_collision(
     collision_id: int,
     request: CollisionResolveRequest,
+    _auth_token: str = Depends(require_service_auth),
+    _rate_limit: None = Depends(require_mutation_rate_limit),
     db: Session = Depends(get_db),
 ) -> CollisionResolveResponse:
     collision = resolve_collision(db, collision_id=collision_id, resolution_note=request.resolution_note)

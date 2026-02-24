@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.security import require_mutation_rate_limit, require_service_auth
 from app.models import CI, Relationship
 from app.schemas import CIBulkIngestResult
 from app.services.integrations import fetch_netbox_cis, publish_backstage_bulk_cis
@@ -118,18 +119,28 @@ def netbox_export(
     }
 
 
-@router.post("/netbox/import", response_model=CIBulkIngestResult)
+@router.post(
+    "/netbox/import",
+    response_model=CIBulkIngestResult,
+    dependencies=[Depends(require_service_auth), Depends(require_mutation_rate_limit)],
+)
 def netbox_import(
     limit: int = Query(default=500, ge=1, le=5000),
     dry_run: bool = Query(default=False, alias="dryRun"),
     db: Session = Depends(get_db),
 ) -> CIBulkIngestResult:
+    if limit > settings.max_bulk_items:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Requested limit exceeds configured max_bulk_items ({settings.max_bulk_items})",
+        )
+
     try:
         cis = fetch_netbox_cis(limit=limit)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="NetBox integration is not configured") from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"NetBox import failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail="NetBox import failed") from exc
 
     created = 0
     updated = 0
@@ -159,12 +170,21 @@ def netbox_import(
     )
 
 
-@router.post("/backstage/sync")
+@router.post(
+    "/backstage/sync",
+    dependencies=[Depends(require_service_auth), Depends(require_mutation_rate_limit)],
+)
 def backstage_sync(
     limit: int = Query(default=500, ge=1, le=5000),
     dry_run: bool = Query(default=False, alias="dryRun"),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    if limit > settings.max_bulk_items:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Requested limit exceeds configured max_bulk_items ({settings.max_bulk_items})",
+        )
+
     cis = list(db.scalars(select(CI).order_by(CI.updated_at.desc()).limit(limit)))
     items = []
     for ci in cis:

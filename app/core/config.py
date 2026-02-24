@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     app_name: str = "Thin CMDB Core"
     app_env: str = "dev"
     app_debug: bool = False
+    max_request_body_bytes: int = 1048576
+    max_bulk_items: int = 500
+    mutating_rate_limit_per_minute: int = 120
 
     database_url: str = "sqlite:///./cmdb.db"
 
@@ -26,6 +29,7 @@ class Settings(BaseSettings):
     jira_token: str = ""
 
     unified_cmdb_name: str = "unifiedCMDB"
+    service_auth_tokens: str = ""
     netbox_sync_enabled: bool = False
     netbox_sync_url: str = ""
     netbox_sync_token: str = ""
@@ -42,6 +46,7 @@ class Settings(BaseSettings):
         if isinstance(value, list):
             return value
         return [item.strip() for item in value.split(",") if item.strip()]
+
 
 
 @lru_cache

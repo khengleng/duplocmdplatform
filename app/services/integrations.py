@@ -44,9 +44,22 @@ def _post_json(url: str, token: str, body: dict[str, Any], target: str) -> dict[
         response = httpx.post(url, json=body, headers=_request_headers(token), timeout=20)
         response.raise_for_status()
         return {"status": "sent", "status_code": response.status_code}
-    except Exception as exc:
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "Integration delivery rejected by upstream",
+            extra={
+                "target": target,
+                "status_code": exc.response.status_code,
+            },
+        )
+        return {
+            "status": "failed",
+            "error": "upstream_rejected",
+            "status_code": exc.response.status_code,
+        }
+    except Exception:
         logger.exception("Integration delivery failed", extra={"target": target})
-        return {"status": "failed", "error": str(exc)}
+        return {"status": "failed", "error": "delivery_failed"}
 
 
 def _b64url_encode(data: bytes) -> str:
