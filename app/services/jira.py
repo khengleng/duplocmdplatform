@@ -35,9 +35,19 @@ class JiraClient:
             headers["Authorization"] = f"Bearer {self.settings.jira_token}"
 
         url = self.settings.jira_base_url.rstrip("/") + "/rest/api/2/issue"
-        response = httpx.post(url, json=payload, headers=headers, timeout=10)
-        response.raise_for_status()
-        return response.json()
+        try:
+            response = httpx.post(url, json=payload, headers=headers, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "Jira issue rejected",
+                extra={"status_code": exc.response.status_code, "summary": summary},
+            )
+            return {"status": "failed", "reason": "jira_rejected", "status_code": exc.response.status_code}
+        except Exception:
+            logger.exception("Jira issue request failed", extra={"summary": summary})
+            return {"status": "failed", "reason": "jira_request_failed"}
 
 
 jira_client = JiraClient()
