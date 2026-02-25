@@ -1,6 +1,6 @@
 # Thin CMDB Core + Connectors
 
-This repository provides a thin CMDB Core service and stub connectors for:
+This repository provides a thin CMDB Core service and source connectors for:
 
 - Zabbix
 - vCenter
@@ -36,6 +36,7 @@ This repository provides a thin CMDB Core service and stub connectors for:
 - Persistent queued/running/succeeded/failed sync jobs
 - Automatic retry with exponential backoff
 - Job status tracking endpoints and audit events
+- Optional periodic scheduler for NetBox import and Backstage sync
 
 6. REST API
 - `POST /ingest/cis:bulk`
@@ -64,6 +65,8 @@ Additional utility endpoints:
 - `GET /integrations/netbox/watermarks`
 - `GET /integrations/jobs`
 - `GET /integrations/jobs/{jobId}`
+- `GET /integrations/schedules`
+- `POST /integrations/schedules/{scheduleName}/trigger`
 
 All endpoints except `/health` require service authentication:
 - `Authorization: Bearer <service-token>`
@@ -130,6 +133,13 @@ Use these environment variables to activate outbound sync webhooks:
 - `SYNC_JOB_MAX_ATTEMPTS=3`
 - `SYNC_JOB_RETRY_BASE_SECONDS=5`
 - `SYNC_WORKER_POLL_SECONDS=2`
+- `SYNC_SCHEDULER_ENABLED=true`
+- `SYNC_SCHEDULE_NETBOX_IMPORT_ENABLED=false`
+- `SYNC_SCHEDULE_NETBOX_IMPORT_INTERVAL_SECONDS=900`
+- `SYNC_SCHEDULE_NETBOX_IMPORT_LIMIT=500`
+- `SYNC_SCHEDULE_BACKSTAGE_SYNC_ENABLED=false`
+- `SYNC_SCHEDULE_BACKSTAGE_SYNC_INTERVAL_SECONDS=900`
+- `SYNC_SCHEDULE_BACKSTAGE_SYNC_LIMIT=500`
 - `NETBOX_SYNC_ENABLED=true`
 - `NETBOX_SYNC_URL=https://<netbox-adapter-endpoint>`
 - `NETBOX_SYNC_TOKEN=<token>`

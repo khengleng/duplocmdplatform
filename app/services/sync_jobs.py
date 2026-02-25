@@ -1,15 +1,17 @@
 import logging
 import threading
+from datetime import datetime
 from datetime import timedelta
+from datetime import timezone
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.time import utcnow
-from app.models import SyncJob, SyncJobStatus
+from app.models import SyncJob, SyncJobStatus, SyncState
 from app.services.audit import append_audit_event
 from app.services.integrations import run_backstage_sync, run_netbox_import
 
@@ -18,9 +20,12 @@ settings = get_settings()
 
 JOB_TYPE_NETBOX_IMPORT = "netbox.import"
 JOB_TYPE_BACKSTAGE_SYNC = "backstage.sync"
+SCHEDULE_NETBOX_IMPORT = "netbox-import"
+SCHEDULE_BACKSTAGE_SYNC = "backstage-sync"
 
 _worker_lock = threading.Lock()
 _worker_thread: threading.Thread | None = None
+_scheduler_thread: threading.Thread | None = None
 _worker_stop_event = threading.Event()
 
 
@@ -66,6 +71,132 @@ def list_sync_jobs(db: Session, limit: int = 50, status: SyncJobStatus | None = 
         stmt = stmt.where(SyncJob.status == status)
     stmt = stmt.order_by(SyncJob.created_at.desc()).limit(limit)
     return list(db.scalars(stmt))
+
+
+def _schedule_next_run_key(schedule_name: str) -> str:
+    return f"sync.schedule.{schedule_name}.next_run_at"
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is not None:
+            return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed
+    except ValueError:
+        return None
+
+
+def _read_sync_state(db: Session, key: str) -> str | None:
+    state = db.get(SyncState, key)
+    return state.value if state else None
+
+
+def _write_sync_state(db: Session, key: str, value: str) -> None:
+    state = db.get(SyncState, key)
+    if state is None:
+        db.add(SyncState(key=key, value=value))
+        return
+    state.value = value
+
+
+def _schedule_definitions() -> dict[str, dict[str, Any]]:
+    return {
+        SCHEDULE_NETBOX_IMPORT: {
+            "job_type": JOB_TYPE_NETBOX_IMPORT,
+            "enabled": settings.sync_schedule_netbox_import_enabled,
+            "interval_seconds": max(30, settings.sync_schedule_netbox_import_interval_seconds),
+            "payload": {
+                "limit": settings.sync_schedule_netbox_import_limit,
+                "dry_run": False,
+                "incremental": True,
+            },
+        },
+        SCHEDULE_BACKSTAGE_SYNC: {
+            "job_type": JOB_TYPE_BACKSTAGE_SYNC,
+            "enabled": settings.sync_schedule_backstage_sync_enabled,
+            "interval_seconds": max(30, settings.sync_schedule_backstage_sync_interval_seconds),
+            "payload": {
+                "limit": settings.sync_schedule_backstage_sync_limit,
+                "dry_run": False,
+            },
+        },
+    }
+
+
+def _is_schedule_ready(schedule_name: str) -> tuple[bool, str | None]:
+    if schedule_name == SCHEDULE_NETBOX_IMPORT:
+        if not settings.netbox_api_url.strip():
+            return False, "netbox_api_url_missing"
+        if not settings.netbox_api_token.strip():
+            return False, "netbox_api_token_missing"
+        return True, None
+
+    if schedule_name == SCHEDULE_BACKSTAGE_SYNC:
+        if not settings.backstage_sync_enabled:
+            return False, "backstage_sync_disabled"
+        if not settings.backstage_sync_url.strip():
+            return False, "backstage_sync_url_missing"
+        if not (settings.backstage_sync_token.strip() or settings.backstage_sync_secret.strip()):
+            return False, "backstage_auth_missing"
+        return True, None
+
+    return False, "unknown_schedule"
+
+
+def list_sync_schedules(db: Session) -> list[dict[str, Any]]:
+    schedules: list[dict[str, Any]] = []
+    definitions = _schedule_definitions()
+    for schedule_name, definition in definitions.items():
+        next_run = _read_sync_state(db, _schedule_next_run_key(schedule_name))
+        ready, reason = _is_schedule_ready(schedule_name)
+        inflight_stmt = select(SyncJob.id).where(
+            and_(
+                SyncJob.job_type == definition["job_type"],
+                SyncJob.requested_by == "scheduler",
+                SyncJob.status.in_([SyncJobStatus.QUEUED, SyncJobStatus.RUNNING]),
+            )
+        )
+        schedules.append(
+            {
+                "name": schedule_name,
+                "job_type": definition["job_type"],
+                "enabled": bool(definition["enabled"]),
+                "interval_seconds": int(definition["interval_seconds"]),
+                "payload": definition["payload"],
+                "next_run_at": next_run,
+                "has_inflight_job": db.scalar(inflight_stmt) is not None,
+                "ready": ready,
+                "not_ready_reason": reason,
+            }
+        )
+    return schedules
+
+
+def enqueue_schedule_job_now(
+    db: Session,
+    schedule_name: str,
+    requested_by: str | None = None,
+) -> SyncJob:
+    definition = _schedule_definitions().get(schedule_name)
+    if not definition:
+        raise ValueError("unknown_schedule")
+    payload = dict(definition["payload"])
+    payload["scheduled"] = True
+    payload["schedule_name"] = schedule_name
+    return enqueue_sync_job(
+        db,
+        job_type=definition["job_type"],
+        payload=payload,
+        requested_by=requested_by or "scheduler-manual",
+    )
 
 
 def _retry_delay_seconds(attempt_count: int) -> int:
@@ -214,6 +345,75 @@ def process_next_sync_job() -> bool:
     return True
 
 
+def _has_inflight_scheduler_job(db: Session, job_type: str) -> bool:
+    stmt = select(SyncJob.id).where(
+        and_(
+            SyncJob.job_type == job_type,
+            SyncJob.requested_by == "scheduler",
+            SyncJob.status.in_([SyncJobStatus.QUEUED, SyncJobStatus.RUNNING]),
+        )
+    )
+    return db.scalar(stmt) is not None
+
+
+def _evaluate_schedule(db: Session, schedule_name: str, definition: dict[str, Any], now: datetime) -> bool:
+    if not bool(definition["enabled"]):
+        return False
+
+    state_key = _schedule_next_run_key(schedule_name)
+    next_run = _parse_iso_datetime(_read_sync_state(db, state_key))
+    if next_run is not None and next_run > now:
+        return False
+
+    ready, not_ready_reason = _is_schedule_ready(schedule_name)
+    if not ready:
+        next_run_at = now + timedelta(seconds=int(definition["interval_seconds"]))
+        _write_sync_state(db, state_key, next_run_at.isoformat())
+        append_audit_event(
+            db,
+            event_type="integration.schedule.skipped",
+            payload={"schedule": schedule_name, "reason": not_ready_reason},
+        )
+        return False
+
+    enqueued = False
+    if not _has_inflight_scheduler_job(db, definition["job_type"]):
+        payload = dict(definition["payload"])
+        payload["scheduled"] = True
+        payload["schedule_name"] = schedule_name
+        enqueue_sync_job(
+            db,
+            job_type=definition["job_type"],
+            payload=payload,
+            requested_by="scheduler",
+        )
+        append_audit_event(
+            db,
+            event_type="integration.schedule.triggered",
+            payload={"schedule": schedule_name, "job_type": definition["job_type"]},
+        )
+        enqueued = True
+
+    next_run_at = now + timedelta(seconds=int(definition["interval_seconds"]))
+    _write_sync_state(db, state_key, next_run_at.isoformat())
+    return enqueued
+
+
+def process_sync_schedules() -> bool:
+    if not settings.sync_scheduler_enabled:
+        return False
+
+    triggered = False
+    now = utcnow()
+    definitions = _schedule_definitions()
+    with SessionLocal() as db:
+        for schedule_name, definition in definitions.items():
+            if _evaluate_schedule(db, schedule_name, definition, now):
+                triggered = True
+        db.commit()
+    return triggered
+
+
 def _worker_loop() -> None:
     logger.info("Sync worker started")
     poll_interval = max(1, settings.sync_worker_poll_seconds)
@@ -228,21 +428,38 @@ def _worker_loop() -> None:
     logger.info("Sync worker stopped")
 
 
+def _scheduler_loop() -> None:
+    logger.info("Sync scheduler started")
+    poll_interval = max(1, settings.sync_worker_poll_seconds)
+    while not _worker_stop_event.is_set():
+        try:
+            process_sync_schedules()
+        except Exception:
+            logger.exception("Sync scheduler loop error")
+        _worker_stop_event.wait(poll_interval)
+    logger.info("Sync scheduler stopped")
+
+
 def start_sync_worker() -> None:
-    global _worker_thread
+    global _worker_thread, _scheduler_thread
     with _worker_lock:
         if _worker_thread and _worker_thread.is_alive():
             return
         _worker_stop_event.clear()
         _worker_thread = threading.Thread(target=_worker_loop, name="sync-worker", daemon=True)
+        _scheduler_thread = threading.Thread(target=_scheduler_loop, name="sync-scheduler", daemon=True)
         _worker_thread.start()
+        _scheduler_thread.start()
 
 
 def stop_sync_worker() -> None:
-    global _worker_thread
+    global _worker_thread, _scheduler_thread
     with _worker_lock:
         if not _worker_thread:
             return
         _worker_stop_event.set()
         _worker_thread.join(timeout=5)
+        if _scheduler_thread:
+            _scheduler_thread.join(timeout=5)
         _worker_thread = None
+        _scheduler_thread = None

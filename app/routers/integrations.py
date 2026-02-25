@@ -18,9 +18,13 @@ from app.services.integrations import get_netbox_watermarks, run_backstage_sync,
 from app.services.sync_jobs import (
     JOB_TYPE_BACKSTAGE_SYNC,
     JOB_TYPE_NETBOX_IMPORT,
+    SCHEDULE_BACKSTAGE_SYNC,
+    SCHEDULE_NETBOX_IMPORT,
     enqueue_sync_job,
+    enqueue_schedule_job_now,
     get_sync_job,
     list_sync_jobs,
+    list_sync_schedules,
 )
 
 router = APIRouter(prefix="/integrations", tags=["integrations"], dependencies=[Depends(require_service_auth)])
@@ -62,6 +66,7 @@ def integrations_status(db: Session = Depends(get_db)) -> dict[str, Any]:
             "sync_job_max_attempts": settings.sync_job_max_attempts,
             "sync_job_retry_base_seconds": settings.sync_job_retry_base_seconds,
             "sync_worker_poll_seconds": settings.sync_worker_poll_seconds,
+            "sync_scheduler_enabled": settings.sync_scheduler_enabled,
         },
         "netbox": {
             "enabled": settings.netbox_sync_enabled,
@@ -75,7 +80,54 @@ def integrations_status(db: Session = Depends(get_db)) -> dict[str, Any]:
             "token_configured": bool(settings.backstage_sync_token),
             "legacy_secret_configured": bool(settings.backstage_sync_secret),
         },
+        "schedules": list_sync_schedules(db),
     }
+
+
+@router.get("/schedules")
+def integrations_schedules(db: Session = Depends(get_db)) -> dict[str, Any]:
+    return {
+        "scheduler_enabled": settings.sync_scheduler_enabled,
+        "schedules": list_sync_schedules(db),
+    }
+
+
+@router.post(
+    "/schedules/{schedule_name}/trigger",
+    response_model=IntegrationJobCreateResponse,
+    dependencies=[Depends(require_mutation_rate_limit)],
+)
+def trigger_schedule(
+    schedule_name: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> IntegrationJobCreateResponse:
+    normalized = schedule_name.strip().lower()
+    aliases = {
+        "netbox": SCHEDULE_NETBOX_IMPORT,
+        "netbox-import": SCHEDULE_NETBOX_IMPORT,
+        "backstage": SCHEDULE_BACKSTAGE_SYNC,
+        "backstage-sync": SCHEDULE_BACKSTAGE_SYNC,
+    }
+    if normalized not in aliases:
+        raise HTTPException(status_code=404, detail="Unknown integration schedule")
+
+    principal = getattr(request.state, "service_principal", None)
+    try:
+        job = enqueue_schedule_job_now(
+            db,
+            schedule_name=aliases[normalized],
+            requested_by=principal or "manual",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Unknown integration schedule") from exc
+    db.commit()
+    return IntegrationJobCreateResponse(
+        job_id=job.id,
+        job_type=job.job_type,
+        status=job.status,
+        queued_at=job.created_at,
+    )
 
 
 @router.get("/jobs", response_model=list[IntegrationJobResponse])

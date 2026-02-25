@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     sync_job_max_attempts: int = 3
     sync_job_retry_base_seconds: int = 5
     sync_worker_poll_seconds: int = 2
+    sync_scheduler_enabled: bool = True
+    sync_schedule_netbox_import_enabled: bool = False
+    sync_schedule_netbox_import_interval_seconds: int = 900
+    sync_schedule_netbox_import_limit: int = 500
+    sync_schedule_backstage_sync_enabled: bool = False
+    sync_schedule_backstage_sync_interval_seconds: int = 900
+    sync_schedule_backstage_sync_limit: int = 500
 
     database_url: str = "sqlite:///./cmdb.db"
 
