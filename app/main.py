@@ -1,15 +1,17 @@
 import logging
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.core.database import Base, engine
 from app.core.logging import configure_logging, correlation_middleware
 from app.core.security import require_service_auth
-from app.routers import audit, cis, governance, ingest, integrations, lifecycle
+from app.routers import audit, cis, dashboard, governance, ingest, integrations, lifecycle
 from app.schemas import HealthResponse
 from app.services.sync_jobs import start_sync_worker, stop_sync_worker
 
@@ -25,6 +27,8 @@ app = FastAPI(
     openapi_url=None,
 )
 app.middleware("http")(correlation_middleware)
+PORTAL_STATIC_DIR = Path(__file__).resolve().parent / "static" / "portal"
+app.mount("/portal/static", StaticFiles(directory=PORTAL_STATIC_DIR), name="portal-static")
 
 
 async def request_size_middleware(request: Request, call_next):
@@ -101,3 +105,4 @@ app.include_router(governance.router)
 app.include_router(lifecycle.router)
 app.include_router(audit.router)
 app.include_router(integrations.router)
+app.include_router(dashboard.router)

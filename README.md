@@ -55,6 +55,9 @@ Backstage compatibility (verified against local Backstage source):
 
 Additional utility endpoints:
 - `GET /health`
+- `GET /portal` (web UI shell)
+- `GET /dashboard/summary` (secured aggregate dashboard API)
+- `GET /dashboard/activity` (secured recent activity API)
 - `POST /lifecycle/run`
 - `GET /governance/collisions`
 - `GET /integrations/status`
@@ -75,6 +78,10 @@ All endpoints except `/health` require service authentication:
 - API docs are disabled by default (can be explicitly enabled and auth-protected)
 - NetBox import supports incremental watermark-based pulls
 - Integration sync can run synchronous or as background async jobs (`asyncJob=true`)
+
+Portal notes:
+- `/portal` is publicly reachable but does not expose CMDB data by itself.
+- The portal UI requires a valid service token to call secured APIs.
 
 ## Local Development
 

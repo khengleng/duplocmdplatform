@@ -1,0 +1,252 @@
+:root {
+  --bg: #f6f8fb;
+  --panel: #ffffff;
+  --ink: #0f1b2d;
+  --muted: #53627a;
+  --line: #d7dfeb;
+  --accent: #0069d9;
+  --accent-2: #ff7a18;
+  --ok: #0d8b5f;
+  --warn: #b45309;
+  --bad: #c81e1e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+  background: radial-gradient(circle at 10% -10%, #e3f1ff, transparent 35%), var(--bg);
+  color: var(--ink);
+}
+
+.bg-orb {
+  position: fixed;
+  z-index: 0;
+  border-radius: 999px;
+  filter: blur(50px);
+  pointer-events: none;
+  opacity: 0.35;
+}
+
+.bg-orb-a {
+  width: 280px;
+  height: 280px;
+  right: -80px;
+  top: 80px;
+  background: #7bc8ff;
+}
+
+.bg-orb-b {
+  width: 220px;
+  height: 220px;
+  left: -40px;
+  bottom: 80px;
+  background: #ffd7aa;
+}
+
+.topbar,
+.layout {
+  position: relative;
+  z-index: 1;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.topbar {
+  padding: 20px 20px 8px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+h1 {
+  margin: 6px 0 0;
+  font-size: 1.8rem;
+}
+
+h2 {
+  margin: 0 0 14px;
+  font-size: 1.1rem;
+}
+
+h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.token-box {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+input {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  min-width: 220px;
+}
+
+.btn {
+  border: 1px solid #a8b7cf;
+  background: #f8fbff;
+  color: var(--ink);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-accent {
+  border-color: var(--accent-2);
+  background: #fff4ea;
+}
+
+.flash {
+  margin: 0 auto 10px;
+  max-width: 1280px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #eef7ff;
+  border: 1px solid #b9ddff;
+}
+
+.hidden {
+  display: none;
+}
+
+.layout {
+  padding: 8px 20px 32px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 8px 24px rgba(15, 27, 45, 0.04);
+}
+
+.kpi-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.kpi {
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.kpi span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.kpi strong {
+  font-size: 1.3rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.actions label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.actions label input {
+  min-width: 90px;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+pre {
+  margin: 0;
+  padding: 10px;
+  background: #fbfdff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-family: "IBM Plex Mono", "SF Mono", monospace;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  padding: 8px 6px;
+  font-size: 0.84rem;
+  vertical-align: top;
+}
+
+th {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.mono {
+  font-family: "IBM Plex Mono", "SF Mono", monospace;
+}
+
+@media (max-width: 920px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+
+  .token-box {
+    width: 100%;
+  }
+
+  .token-box input {
+    flex: 1;
+    min-width: 0;
+  }
+}
