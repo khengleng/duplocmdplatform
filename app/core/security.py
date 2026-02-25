@@ -38,22 +38,24 @@ class SlidingWindowLimiter:
             return True
 
 
-_rate_limiter: SlidingWindowLimiter | None = None
+_rate_limiters: dict[int, SlidingWindowLimiter] = {}
+_rate_limiter_lock = threading.Lock()
 _global_rate_limiter: SlidingWindowLimiter | None = None
 _jwks_client: tuple[str, PyJWKClient] | None = None
 _jwks_lock = threading.Lock()
 
 
-def _get_rate_limiter() -> SlidingWindowLimiter:
-    global _rate_limiter
-    settings = get_settings()
-    max_requests = max(1, settings.mutating_rate_limit_per_minute)
-    if _rate_limiter is None or _rate_limiter.max_requests != max_requests:
-        _rate_limiter = SlidingWindowLimiter(
-            max_requests=max_requests,
-            window_seconds=60,
-        )
-    return _rate_limiter
+def _get_rate_limiter(max_requests: int) -> SlidingWindowLimiter:
+    limit = max(1, max_requests)
+    with _rate_limiter_lock:
+        limiter = _rate_limiters.get(limit)
+        if limiter is None:
+            limiter = SlidingWindowLimiter(
+                max_requests=limit,
+                window_seconds=60,
+            )
+            _rate_limiters[limit] = limiter
+        return limiter
 
 
 def _get_global_rate_limiter() -> SlidingWindowLimiter:
@@ -118,8 +120,65 @@ def canonical_payload_hash_from_object(payload: object) -> str:
     return hashlib.sha256(_normalize_json_bytes(payload)).hexdigest()
 
 
-def _apply_mutation_rate_limit(request: Request) -> None:
-    limiter = _get_rate_limiter()
+def _mutation_rate_limit_for_path(path: str, *, approver: bool = False) -> int:
+    settings = get_settings()
+    if approver:
+        return max(1, settings.approver_mutating_rate_limit_per_minute)
+    if path.startswith("/ingest"):
+        return max(1, settings.mutating_rate_limit_ingest_per_minute)
+    if path.startswith("/integrations"):
+        return max(1, settings.mutating_rate_limit_integrations_per_minute)
+    if path.startswith("/relationships"):
+        return max(1, settings.mutating_rate_limit_relationships_per_minute)
+    if path.startswith("/cis"):
+        return max(1, settings.mutating_rate_limit_cis_per_minute)
+    if path.startswith("/governance"):
+        return max(1, settings.mutating_rate_limit_governance_per_minute)
+    if path.startswith("/lifecycle"):
+        return max(1, settings.mutating_rate_limit_lifecycle_per_minute)
+    if path.startswith("/approvals"):
+        return max(1, settings.mutating_rate_limit_approvals_per_minute)
+    return max(1, settings.mutating_rate_limit_per_minute)
+
+
+def _mutation_payload_limit_for_path(path: str) -> int:
+    settings = get_settings()
+    if path.startswith("/ingest"):
+        return max(1, settings.mutating_payload_limit_ingest_bytes)
+    if path.startswith("/integrations"):
+        return max(1, settings.mutating_payload_limit_integrations_bytes)
+    if path.startswith("/relationships"):
+        return max(1, settings.mutating_payload_limit_relationships_bytes)
+    if path.startswith("/cis"):
+        return max(1, settings.mutating_payload_limit_cis_bytes)
+    if path.startswith("/governance"):
+        return max(1, settings.mutating_payload_limit_governance_bytes)
+    if path.startswith("/lifecycle"):
+        return max(1, settings.mutating_payload_limit_lifecycle_bytes)
+    if path.startswith("/approvals"):
+        return max(1, settings.mutating_payload_limit_approvals_bytes)
+    return max(1, settings.mutating_payload_limit_default_bytes)
+
+
+def _enforce_mutation_payload_limit(request: Request) -> None:
+    content_length = request.headers.get("content-length")
+    if content_length is None:
+        return
+    try:
+        declared_size = int(content_length)
+    except ValueError:
+        return
+    limit_bytes = _mutation_payload_limit_for_path(request.url.path)
+    if declared_size > limit_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Request payload exceeds endpoint limit ({limit_bytes} bytes)",
+        )
+
+
+def _apply_mutation_rate_limit(request: Request, *, approver: bool = False) -> None:
+    max_requests = _mutation_rate_limit_for_path(request.url.path, approver=approver)
+    limiter = _get_rate_limiter(max_requests)
     principal = getattr(request.state, "service_principal", "service:unknown")
     route_key = request.url.path
     key = f"{principal}:{route_key}"
@@ -396,9 +455,11 @@ async def require_mutation_rate_limit(
 ) -> None:
     require_operator_scope(request)
     _apply_mutation_rate_limit(request)
+    _enforce_mutation_payload_limit(request)
     await _enforce_maker_checker(request, db)
 
 
 def require_approver_mutation_rate_limit(request: Request) -> None:
     require_approver_scope(request)
-    _apply_mutation_rate_limit(request)
+    _apply_mutation_rate_limit(request, approver=True)
+    _enforce_mutation_payload_limit(request)

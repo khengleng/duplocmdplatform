@@ -75,6 +75,7 @@ Additional utility endpoints:
 - `GET /portal` (web UI shell)
 - `GET /dashboard/summary` (secured aggregate dashboard API)
 - `GET /dashboard/activity` (secured recent activity API)
+- `GET /dashboard/alerts` (secured 5-minute security alert snapshot API)
 - `POST /lifecycle/run`
 - `GET /governance/collisions`
 - `GET /integrations/status`
@@ -92,6 +93,7 @@ All endpoints except `/health` require service authentication:
 - `Authorization: Bearer <service-token>`
 - Authentication mode can be configured as `static`, `hybrid`, or `oidc`
 - Mutating endpoints are rate-limited per token and route
+- Per-endpoint mutating rate limits and payload caps are enforced
 - Global request rate limiting is enforced per token/IP and route
 - Request bodies and bulk item counts are bounded
 - Request processing timeout is enforced with a deterministic timeout response
@@ -112,6 +114,8 @@ Token scopes:
 - Mutating endpoints require `operator` scope.
 - Approval decisions require `approver` scope.
 - Optional maker-checker is available for mutating endpoints via `x-cmdb-approval-id`.
+- Self-approval is blocked (`requested_by` cannot approve/reject the same request).
+- Expired pending approvals are auto-cleaned by the scheduler loop.
 
 Maker-checker flow:
 1. Operator creates a pending approval with `POST /approvals`.
@@ -135,6 +139,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
@@ -185,9 +190,28 @@ Use these environment variables to activate outbound sync webhooks:
 - `REQUEST_TIMEOUT_SECONDS=30`
 - `GLOBAL_RATE_LIMIT_PER_MINUTE=600`
 - `MUTATING_RATE_LIMIT_PER_MINUTE=120`
+- `MUTATING_RATE_LIMIT_INGEST_PER_MINUTE=60`
+- `MUTATING_RATE_LIMIT_INTEGRATIONS_PER_MINUTE=60`
+- `MUTATING_RATE_LIMIT_RELATIONSHIPS_PER_MINUTE=90`
+- `MUTATING_RATE_LIMIT_CIS_PER_MINUTE=90`
+- `MUTATING_RATE_LIMIT_GOVERNANCE_PER_MINUTE=60`
+- `MUTATING_RATE_LIMIT_LIFECYCLE_PER_MINUTE=30`
+- `MUTATING_RATE_LIMIT_APPROVALS_PER_MINUTE=60`
+- `APPROVER_MUTATING_RATE_LIMIT_PER_MINUTE=30`
+- `MUTATING_PAYLOAD_LIMIT_DEFAULT_BYTES=65536`
+- `MUTATING_PAYLOAD_LIMIT_INGEST_BYTES=1048576`
+- `MUTATING_PAYLOAD_LIMIT_INTEGRATIONS_BYTES=8192`
+- `MUTATING_PAYLOAD_LIMIT_RELATIONSHIPS_BYTES=16384`
+- `MUTATING_PAYLOAD_LIMIT_CIS_BYTES=16384`
+- `MUTATING_PAYLOAD_LIMIT_GOVERNANCE_BYTES=8192`
+- `MUTATING_PAYLOAD_LIMIT_LIFECYCLE_BYTES=4096`
+- `MUTATING_PAYLOAD_LIMIT_APPROVALS_BYTES=65536`
 - `MAKER_CHECKER_ENABLED=false`
 - `MAKER_CHECKER_DEFAULT_TTL_MINUTES=30`
 - `MAKER_CHECKER_BIND_REQUESTER=true`
+- `APPROVAL_CLEANUP_INTERVAL_SECONDS=60`
+- `DATABASE_URL=postgresql+psycopg://cmdb:cmdb@localhost:5432/cmdb`
+- `DATABASE_AUTO_MIGRATE=true`
 - `SYNC_JOB_MAX_ATTEMPTS=3`
 - `SYNC_JOB_RETRY_BASE_SECONDS=5`
 - `SYNC_WORKER_POLL_SECONDS=2`
@@ -232,3 +256,13 @@ Backstage source note:
 
 Structured JSON logs are emitted with `correlationId`.
 Incoming `x-correlation-id` header is preserved; otherwise one is generated per request.
+
+## Database Migrations And Backup Checks
+
+- Apply schema migrations:
+  - `alembic upgrade head`
+  - or `./scripts/db_migrate.sh`
+- Backup PostgreSQL:
+  - `DATABASE_URL=<postgres-url> ./scripts/postgres_backup.sh`
+- Backup + restore validation drill:
+  - `DATABASE_URL=<source-postgres-url> RESTORE_CHECK_DATABASE_URL=<target-postgres-url> ./scripts/postgres_restore_check.sh`

@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
-from app.core.database import Base, engine
+from app.core.database import ensure_database_schema
 from app.core.logging import configure_logging, correlation_middleware
 from app.core.security import enforce_global_rate_limit, require_service_auth
 from app.core.telemetry import record_event
@@ -216,7 +216,7 @@ if settings.api_docs_enabled:
 
 @app.on_event("startup")
 def on_startup() -> None:
-    Base.metadata.create_all(bind=engine)
+    ensure_database_schema()
     start_sync_worker()
     logger.info("Thin CMDB Core started")
 

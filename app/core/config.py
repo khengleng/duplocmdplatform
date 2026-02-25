@@ -18,9 +18,26 @@ class Settings(BaseSettings):
     request_timeout_seconds: int = 30
     global_rate_limit_per_minute: int = 600
     mutating_rate_limit_per_minute: int = 120
+    mutating_rate_limit_ingest_per_minute: int = 60
+    mutating_rate_limit_integrations_per_minute: int = 60
+    mutating_rate_limit_relationships_per_minute: int = 90
+    mutating_rate_limit_cis_per_minute: int = 90
+    mutating_rate_limit_governance_per_minute: int = 60
+    mutating_rate_limit_lifecycle_per_minute: int = 30
+    mutating_rate_limit_approvals_per_minute: int = 60
+    approver_mutating_rate_limit_per_minute: int = 30
+    mutating_payload_limit_default_bytes: int = 65536
+    mutating_payload_limit_ingest_bytes: int = 1048576
+    mutating_payload_limit_integrations_bytes: int = 8192
+    mutating_payload_limit_relationships_bytes: int = 16384
+    mutating_payload_limit_cis_bytes: int = 16384
+    mutating_payload_limit_governance_bytes: int = 8192
+    mutating_payload_limit_lifecycle_bytes: int = 4096
+    mutating_payload_limit_approvals_bytes: int = 65536
     maker_checker_enabled: bool = False
     maker_checker_default_ttl_minutes: int = 30
     maker_checker_bind_requester: bool = True
+    approval_cleanup_interval_seconds: int = 60
     sync_job_max_attempts: int = 3
     sync_job_retry_base_seconds: int = 5
     sync_worker_poll_seconds: int = 2
@@ -33,6 +50,7 @@ class Settings(BaseSettings):
     sync_schedule_backstage_sync_limit: int = 500
 
     database_url: str = "sqlite:///./cmdb.db"
+    database_auto_migrate: bool = True
 
     source_precedence: List[str] = ["manual", "azure", "vcenter", "zabbix", "k8s"]
 

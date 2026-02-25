@@ -15,6 +15,7 @@ from app.core.security import (
 from app.core.time import utcnow
 from app.models import ApprovalStatus, ChangeApproval
 from app.schemas import ApprovalCreateRequest, ApprovalDecisionRequest, ApprovalResponse
+from app.services.approvals import expire_pending_approvals
 from app.services.audit import append_audit_event
 
 router = APIRouter(prefix="/approvals", tags=["approvals"], dependencies=[Depends(require_service_auth)])
@@ -62,6 +63,9 @@ def list_approvals(
     limit: int = Query(default=100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ) -> list[ApprovalResponse]:
+    expired_count = expire_pending_approvals(db)
+    if expired_count > 0:
+        db.commit()
     stmt = select(ChangeApproval)
     if status:
         stmt = stmt.where(ChangeApproval.status == status)
@@ -75,6 +79,9 @@ def create_approval(
     request: Request,
     db: Session = Depends(get_db),
 ) -> ApprovalResponse:
+    expired_count = expire_pending_approvals(db)
+    if expired_count > 0:
+        db.commit()
     principal = getattr(request.state, "service_principal", "service:unknown")
     request_path = _normalize_request_path(request_body.path, request_body.query)
     payload_hash = canonical_payload_hash_from_object(request_body.payload)
@@ -121,6 +128,9 @@ def approve_approval(
     request: Request,
     db: Session = Depends(get_db),
 ) -> ApprovalResponse:
+    expired_count = expire_pending_approvals(db)
+    if expired_count > 0:
+        db.commit()
     approval = db.get(ChangeApproval, approval_id)
     if not approval:
         raise HTTPException(status_code=404, detail="Approval request not found")
@@ -130,6 +140,8 @@ def approve_approval(
         raise HTTPException(status_code=409, detail="Approval request has expired")
 
     approver = getattr(request.state, "service_principal", "service:unknown")
+    if approval.requested_by == approver:
+        raise HTTPException(status_code=409, detail="Self-approval is not allowed")
     approval.status = ApprovalStatus.APPROVED
     approval.decided_by = approver
     approval.decision_note = request_body.note.strip() if request_body.note else None
@@ -160,6 +172,9 @@ def reject_approval(
     request: Request,
     db: Session = Depends(get_db),
 ) -> ApprovalResponse:
+    expired_count = expire_pending_approvals(db)
+    if expired_count > 0:
+        db.commit()
     approval = db.get(ChangeApproval, approval_id)
     if not approval:
         raise HTTPException(status_code=404, detail="Approval request not found")
@@ -167,6 +182,8 @@ def reject_approval(
         raise HTTPException(status_code=409, detail="Only PENDING approvals can be rejected")
 
     approver = getattr(request.state, "service_principal", "service:unknown")
+    if approval.requested_by == approver:
+        raise HTTPException(status_code=409, detail="Self-decision is not allowed")
     approval.status = ApprovalStatus.REJECTED
     approval.decided_by = approver
     approval.decision_note = request_body.note.strip() if request_body.note else None

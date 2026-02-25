@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
@@ -14,6 +15,7 @@ from app.core.database import SessionLocal
 from app.core.telemetry import record_event
 from app.core.time import utcnow
 from app.models import SyncJob, SyncJobStatus, SyncState
+from app.services.approvals import expire_pending_approvals
 from app.services.audit import append_audit_event
 from app.services.integrations import run_backstage_sync, run_netbox_import
 
@@ -29,6 +31,7 @@ _worker_lock = threading.Lock()
 _worker_thread: threading.Thread | None = None
 _scheduler_thread: threading.Thread | None = None
 _worker_stop_event = threading.Event()
+_last_approval_cleanup_at: float = 0.0
 
 
 def enqueue_sync_job(
@@ -449,8 +452,19 @@ def _worker_loop() -> None:
 def _scheduler_loop() -> None:
     logger.info("Sync scheduler started")
     poll_interval = max(1, settings.sync_worker_poll_seconds)
+    cleanup_interval = max(15, settings.approval_cleanup_interval_seconds)
+    global _last_approval_cleanup_at
     while not _worker_stop_event.is_set():
         try:
+            now_monotonic = time.monotonic()
+            if now_monotonic - _last_approval_cleanup_at >= cleanup_interval:
+                with SessionLocal() as db:
+                    expired_count = expire_pending_approvals(db)
+                    if expired_count > 0:
+                        db.commit()
+                    else:
+                        db.rollback()
+                _last_approval_cleanup_at = now_monotonic
             process_sync_schedules()
         except Exception:
             logger.exception("Sync scheduler loop error")
