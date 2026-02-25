@@ -13,9 +13,7 @@ Covers:
 """
 from __future__ import annotations
 
-import hashlib
 import uuid
-from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -165,7 +163,7 @@ def test_get_ci_not_found(client):
 def test_get_ci_detail(client):
     # Create one CI
     ingest_resp = client.post("/ingest/cis:bulk", json=_BASE_CI, headers=_auth(OPERATOR))
-    body = ingest_resp.json()
+    ingest_resp.json()
     # Pull list to get an ID
     cis_resp = client.get("/cis?limit=1", headers=_auth(VIEWER))
     ci_id = cis_resp.json()["items"][0]["id"]

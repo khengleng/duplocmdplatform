@@ -1,4 +1,3 @@
-from typing import Any
 
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session

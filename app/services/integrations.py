@@ -18,7 +18,6 @@ from app.schemas import CIPayload
 from app.services.jira import jira_client
 from app.services.reconciliation import reconcile_ci_payload
 from app.services.sync_state import (
-    is_non_dev_environment as _is_non_dev_environment,
     read_sync_state as _read_sync_state,
     validated_outbound_url as _validated_outbound_url_impl,
     write_sync_state as _write_sync_state,
