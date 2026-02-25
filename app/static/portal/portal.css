@@ -249,6 +249,20 @@ select {
   min-width: 280px;
 }
 
+.ci-filters label input,
+.ci-filters label select {
+  min-width: 160px;
+}
+
+.ci-pagination {
+  align-items: center;
+}
+
+.pagination-info {
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
 .drift-resolve {
   margin-top: 12px;
 }
@@ -306,6 +320,36 @@ th {
 
 .mono {
   font-family: "IBM Plex Mono", "SF Mono", monospace;
+}
+
+.graph-summary {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.graph-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfdff;
+}
+
+.graph-list li {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  word-break: break-word;
+}
+
+.graph-list li:last-child {
+  border-bottom: 0;
+}
+
+.graph-empty {
+  color: var(--muted);
 }
 
 @media (max-width: 920px) {

@@ -68,6 +68,55 @@
 
       <section class="panel">
         <h2>Recent CIs</h2>
+        <div class="actions ci-filters">
+          <label>
+            Search
+            <input id="ciFilterQ" type="text" placeholder="name or type" />
+          </label>
+          <label>
+            Source
+            <select id="ciFilterSource">
+              <option value="">Any</option>
+              <option value="netbox">netbox</option>
+              <option value="backstage">backstage</option>
+              <option value="zabbix">zabbix</option>
+              <option value="portal">portal</option>
+            </select>
+          </label>
+          <label>
+            Status
+            <select id="ciFilterStatus">
+              <option value="">Any</option>
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="STAGING">STAGING</option>
+              <option value="RETIREMENT_REVIEW">RETIREMENT_REVIEW</option>
+              <option value="RETIRED">RETIRED</option>
+            </select>
+          </label>
+          <label>
+            Owner
+            <input id="ciFilterOwner" type="text" placeholder="owner id" />
+          </label>
+          <label>
+            Environment
+            <input id="ciFilterEnvironment" type="text" placeholder="prod/dev/qa" />
+          </label>
+          <label>
+            Page Size
+            <select id="ciPageLimit">
+              <option value="20">20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+          <button id="applyCiFiltersBtn" class="btn">Apply Filters</button>
+          <button id="resetCiFiltersBtn" class="btn">Reset</button>
+        </div>
+        <div class="actions ci-pagination">
+          <button id="ciPrevPageBtn" class="btn">Previous</button>
+          <button id="ciNextPageBtn" class="btn">Next</button>
+          <span id="ciPaginationInfo" class="pagination-info">Showing 0-0 of 0</span>
+        </div>
         <table>
           <thead>
             <tr>
@@ -123,6 +172,25 @@
       </section>
 
       <section class="panel">
+        <h2>Relationship Graph (Selected CI)</h2>
+        <p id="ciGraphSummary" class="graph-summary">Select a CI to load graph relationships.</p>
+        <div class="split">
+          <div>
+            <h3>Upstream (depends on selected)</h3>
+            <ul id="ciGraphUpstream" class="graph-list">
+              <li class="graph-empty">No data</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Downstream (depends on selected)</h3>
+            <ul id="ciGraphDownstream" class="graph-list">
+              <li class="graph-empty">No data</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
         <h2>Relationship Manager</h2>
         <div class="actions">
           <label>
@@ -156,6 +224,18 @@
           </thead>
           <tbody id="relationshipRows"></tbody>
         </table>
+      </section>
+
+      <section class="panel">
+        <h2>Data Export</h2>
+        <div class="actions">
+          <label>
+            Export Limit
+            <input id="exportLimit" type="number" min="1" max="20000" value="1000" />
+          </label>
+          <button id="exportAuditBtn" class="btn">Download Audit Export (NDJSON)</button>
+          <button id="exportNetboxBtn" class="btn">Download NetBox Export (JSON)</button>
+        </div>
       </section>
 
       <section class="panel">

@@ -13,6 +13,17 @@ const triggerBackstageScheduleBtn = document.getElementById("triggerBackstageSch
 const runLifecycleBtn = document.getElementById("runLifecycleBtn");
 const collisionStatusFilter = document.getElementById("collisionStatusFilter");
 const refreshCollisionsBtn = document.getElementById("refreshCollisionsBtn");
+const ciFilterQInput = document.getElementById("ciFilterQ");
+const ciFilterSourceSelect = document.getElementById("ciFilterSource");
+const ciFilterStatusSelect = document.getElementById("ciFilterStatus");
+const ciFilterOwnerInput = document.getElementById("ciFilterOwner");
+const ciFilterEnvironmentInput = document.getElementById("ciFilterEnvironment");
+const ciPageLimitSelect = document.getElementById("ciPageLimit");
+const applyCiFiltersBtn = document.getElementById("applyCiFiltersBtn");
+const resetCiFiltersBtn = document.getElementById("resetCiFiltersBtn");
+const ciPrevPageBtn = document.getElementById("ciPrevPageBtn");
+const ciNextPageBtn = document.getElementById("ciNextPageBtn");
+const ciPaginationInfo = document.getElementById("ciPaginationInfo");
 
 const relSourceSelect = document.getElementById("relSourceCiId");
 const relTargetSelect = document.getElementById("relTargetCiId");
@@ -23,9 +34,26 @@ const driftFieldName = document.getElementById("driftFieldName");
 const driftFieldType = document.getElementById("driftFieldType");
 const driftFieldOwner = document.getElementById("driftFieldOwner");
 const resolveDriftBtn = document.getElementById("resolveDriftBtn");
+const ciGraphSummary = document.getElementById("ciGraphSummary");
+const ciGraphUpstream = document.getElementById("ciGraphUpstream");
+const ciGraphDownstream = document.getElementById("ciGraphDownstream");
+const exportLimitInput = document.getElementById("exportLimit");
+const exportAuditBtn = document.getElementById("exportAuditBtn");
+const exportNetboxBtn = document.getElementById("exportNetboxBtn");
 
 let selectedCiId = null;
 let currentScope = "viewer";
+const ciNameById = new Map();
+const defaultCiQueryState = {
+  q: "",
+  source: "",
+  status: "",
+  owner: "",
+  environment: "",
+  limit: 20,
+  offset: 0,
+};
+const ciQueryState = { ...defaultCiQueryState };
 
 function getToken() {
   return localStorage.getItem("cmdb_service_token") || "";
@@ -54,6 +82,80 @@ async function api(path, options = {}) {
     throw new Error(`${response.status} ${response.statusText}: ${body}`);
   }
   return response.json();
+}
+
+function ciLabel(ciId) {
+  return ciNameById.get(ciId) || ciId;
+}
+
+function formatCiOptionLabel(ci) {
+  return `${ci.name} (${ci.ci_type}) - ${ci.id}`;
+}
+
+function buildCiQueryString() {
+  const params = new URLSearchParams();
+  params.set("limit", String(ciQueryState.limit));
+  params.set("offset", String(ciQueryState.offset));
+  if (ciQueryState.q) params.set("q", ciQueryState.q);
+  if (ciQueryState.source) params.set("source", ciQueryState.source);
+  if (ciQueryState.status) params.set("status", ciQueryState.status);
+  if (ciQueryState.owner) params.set("owner", ciQueryState.owner);
+  if (ciQueryState.environment) params.set("environment", ciQueryState.environment);
+  return params.toString();
+}
+
+function syncCiFilterInputsToState() {
+  ciQueryState.q = (ciFilterQInput?.value || "").trim();
+  ciQueryState.source = ciFilterSourceSelect?.value || "";
+  ciQueryState.status = ciFilterStatusSelect?.value || "";
+  ciQueryState.owner = (ciFilterOwnerInput?.value || "").trim();
+  ciQueryState.environment = (ciFilterEnvironmentInput?.value || "").trim();
+  ciQueryState.limit = Number(ciPageLimitSelect?.value || defaultCiQueryState.limit);
+}
+
+function resetCiFilterState() {
+  if (ciFilterQInput) ciFilterQInput.value = "";
+  if (ciFilterSourceSelect) ciFilterSourceSelect.value = "";
+  if (ciFilterStatusSelect) ciFilterStatusSelect.value = "";
+  if (ciFilterOwnerInput) ciFilterOwnerInput.value = "";
+  if (ciFilterEnvironmentInput) ciFilterEnvironmentInput.value = "";
+  if (ciPageLimitSelect) ciPageLimitSelect.value = String(defaultCiQueryState.limit);
+  Object.assign(ciQueryState, defaultCiQueryState);
+}
+
+function updateCiPagination(total, currentItemCount) {
+  if (!ciPaginationInfo || !ciPrevPageBtn || !ciNextPageBtn) return;
+  const start = total > 0 ? ciQueryState.offset + 1 : 0;
+  const end = total > 0 ? ciQueryState.offset + currentItemCount : 0;
+  ciPaginationInfo.textContent = `Showing ${start}-${end} of ${total}`;
+  ciPrevPageBtn.disabled = ciQueryState.offset <= 0;
+  ciNextPageBtn.disabled = ciQueryState.offset + currentItemCount >= total;
+}
+
+function renderGraphList(container, relationships) {
+  container.innerHTML = "";
+  if (!relationships.length) {
+    const empty = document.createElement("li");
+    empty.className = "graph-empty";
+    empty.textContent = "No data";
+    container.appendChild(empty);
+    return;
+  }
+  relationships.forEach((rel) => {
+    const item = document.createElement("li");
+    item.textContent = `${rel.relation_type}: ${ciLabel(rel.source_ci_id)} -> ${ciLabel(rel.target_ci_id)} (${rel.source})`;
+    container.appendChild(item);
+  });
+}
+
+function clearCiSelectionViews() {
+  document.getElementById("ciDetail").textContent = "Select a CI row to inspect details.";
+  document.getElementById("ciIdentities").textContent = "-";
+  document.getElementById("ciDrift").textContent = "-";
+  ciGraphSummary.textContent = "Select a CI to load graph relationships.";
+  renderGraphList(ciGraphUpstream, []);
+  renderGraphList(ciGraphDownstream, []);
+  renderRows("relationshipRows", []);
 }
 
 function td(text, cssClass = "") {
@@ -92,7 +194,7 @@ function updateScopeUi(scope) {
 function createCiOption(ci) {
   const option = document.createElement("option");
   option.value = ci.id;
-  option.textContent = `${ci.name} (${ci.ci_type}) - ${ci.id}`;
+  option.textContent = formatCiOptionLabel(ci);
   return option;
 }
 
@@ -131,6 +233,10 @@ function setRelationshipSelectOptions(cis) {
 
 async function loadCiOptions() {
   const cis = await api("/pickers/cis?limit=200");
+  ciNameById.clear();
+  cis.forEach((ci) => {
+    ciNameById.set(ci.id, formatCiOptionLabel(ci));
+  });
   setRelationshipSelectOptions(cis);
 }
 
@@ -153,12 +259,13 @@ async function loadSummary() {
 }
 
 async function loadCis() {
-  const result = await api("/cis?limit=20");
-  const rows = result.items.map((ci) => {
+  const result = await api(`/cis?${buildCiQueryString()}`);
+  const items = Array.isArray(result.items) ? result.items : [];
+  const rows = items.map((ci) => {
     const tr = document.createElement("tr");
     tr.classList.add("clickable-row");
     if (selectedCiId === ci.id) tr.classList.add("selected");
-    tr.addEventListener("click", () => selectCi(ci.id));
+    tr.addEventListener("click", () => selectCi(ci.id, { refreshList: true }));
     tr.appendChild(td(ci.name));
     tr.appendChild(td(ci.ci_type));
     tr.appendChild(td(ci.status));
@@ -168,9 +275,16 @@ async function loadCis() {
     return tr;
   });
   renderRows("ciRows", rows);
+  updateCiPagination(result.total || 0, items.length);
 
-  if (!selectedCiId && result.items.length > 0) {
-    await selectCi(result.items[0].id);
+  if ((result.total || 0) === 0) {
+    selectedCiId = null;
+    clearCiSelectionViews();
+    return;
+  }
+
+  if (!selectedCiId && items.length > 0) {
+    await selectCi(items[0].id, { refreshList: false });
   }
 }
 
@@ -266,8 +380,8 @@ async function loadRelationshipsForSelectedCi() {
   const rows = relationships.map((rel) => {
     const tr = document.createElement("tr");
     tr.appendChild(td(rel.id));
-    tr.appendChild(td(rel.source_ci_id, "mono"));
-    tr.appendChild(td(rel.target_ci_id, "mono"));
+    tr.appendChild(td(ciLabel(rel.source_ci_id), "mono"));
+    tr.appendChild(td(ciLabel(rel.target_ci_id), "mono"));
     tr.appendChild(td(rel.relation_type));
     tr.appendChild(td(rel.source));
     const actionCell = document.createElement("td");
@@ -288,16 +402,24 @@ async function loadRelationshipsForSelectedCi() {
   renderRows("relationshipRows", rows);
 }
 
-async function selectCi(ciId) {
+async function selectCi(ciId, options = {}) {
+  const refreshList = options.refreshList === true;
   selectedCiId = ciId;
   if ([...relSourceSelect.options].some((option) => option.value === ciId)) {
     relSourceSelect.value = ciId;
   }
-  await Promise.all([loadCiDetail(ciId), loadCiDrift(ciId), loadRelationshipsForSelectedCi(), loadCis()]);
+  const requests = [loadCiDetail(ciId), loadCiDrift(ciId), loadCiGraph(ciId), loadRelationshipsForSelectedCi()];
+  if (refreshList) {
+    requests.push(loadCis());
+  }
+  await Promise.all(requests);
 }
 
 async function loadCiDetail(ciId) {
   const detail = await api(`/cis/${encodeURIComponent(ciId)}/detail`);
+  if (detail?.ci?.id) {
+    ciNameById.set(detail.ci.id, formatCiOptionLabel(detail.ci));
+  }
   document.getElementById("ciDetail").textContent = JSON.stringify(detail.ci, null, 2);
   document.getElementById("ciIdentities").textContent = JSON.stringify(detail.identities, null, 2);
 }
@@ -305,6 +427,15 @@ async function loadCiDetail(ciId) {
 async function loadCiDrift(ciId) {
   const drift = await api(`/cis/${encodeURIComponent(ciId)}/drift`);
   document.getElementById("ciDrift").textContent = JSON.stringify(drift, null, 2);
+}
+
+async function loadCiGraph(ciId) {
+  const graph = await api(`/cis/${encodeURIComponent(ciId)}/graph`);
+  const upstream = Array.isArray(graph.upstream) ? graph.upstream : [];
+  const downstream = Array.isArray(graph.downstream) ? graph.downstream : [];
+  ciGraphSummary.textContent = `CI ${ciLabel(ciId)} has ${upstream.length} upstream and ${downstream.length} downstream relationships.`;
+  renderGraphList(ciGraphUpstream, upstream);
+  renderGraphList(ciGraphDownstream, downstream);
 }
 
 function selectedDriftFields() {
@@ -315,13 +446,67 @@ function selectedDriftFields() {
   return fields;
 }
 
+async function applyCiFilters(options = {}) {
+  syncCiFilterInputsToState();
+  if (options.resetOffset !== false) {
+    ciQueryState.offset = 0;
+  }
+  await loadCis();
+}
+
+async function authFetch(path) {
+  const token = getToken();
+  if (!token) {
+    throw new Error("Missing service token. Add it above first.");
+  }
+  const response = await fetch(path, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`${response.status} ${response.statusText}: ${body}`);
+  }
+  return response;
+}
+
+function timestampToken() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+async function downloadExport(path, filename, asPrettyJson = false) {
+  const response = await authFetch(path);
+  let blob;
+  if (asPrettyJson) {
+    const payload = await response.json();
+    blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  } else {
+    blob = await response.blob();
+  }
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 async function refreshAll() {
   try {
+    const hadSelectedCi = Boolean(selectedCiId);
     await loadAuthMe();
     await loadCiOptions();
     await Promise.all([loadSummary(), loadJobs(), loadCollisions(), loadActivity(), loadCis()]);
-    if (selectedCiId) {
-      await Promise.all([loadCiDetail(selectedCiId), loadCiDrift(selectedCiId), loadRelationshipsForSelectedCi()]);
+    if (selectedCiId && hadSelectedCi) {
+      await Promise.all([
+        loadCiDetail(selectedCiId),
+        loadCiDrift(selectedCiId),
+        loadCiGraph(selectedCiId),
+        loadRelationshipsForSelectedCi(),
+      ]);
     }
     showFlash("Portal refreshed.");
   } catch (error) {
@@ -356,6 +541,43 @@ saveTokenBtn.addEventListener("click", () => {
 });
 
 refreshBtn.addEventListener("click", refreshAll);
+if (applyCiFiltersBtn) {
+  applyCiFiltersBtn.addEventListener("click", () => {
+    applyCiFilters().catch((error) => showFlash(error.message, true));
+  });
+}
+if (resetCiFiltersBtn) {
+  resetCiFiltersBtn.addEventListener("click", () => {
+    resetCiFilterState();
+    applyCiFilters().catch((error) => showFlash(error.message, true));
+  });
+}
+if (ciPrevPageBtn) {
+  ciPrevPageBtn.addEventListener("click", () => {
+    ciQueryState.offset = Math.max(0, ciQueryState.offset - ciQueryState.limit);
+    loadCis().catch((error) => showFlash(error.message, true));
+  });
+}
+if (ciNextPageBtn) {
+  ciNextPageBtn.addEventListener("click", () => {
+    ciQueryState.offset += ciQueryState.limit;
+    loadCis().catch((error) => showFlash(error.message, true));
+  });
+}
+[ciFilterQInput, ciFilterOwnerInput, ciFilterEnvironmentInput].forEach((input) => {
+  if (!input) return;
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      applyCiFilters().catch((error) => showFlash(error.message, true));
+    }
+  });
+});
+[ciFilterSourceSelect, ciFilterStatusSelect, ciPageLimitSelect].forEach((control) => {
+  if (!control) return;
+  control.addEventListener("change", () => {
+    applyCiFilters().catch((error) => showFlash(error.message, true));
+  });
+});
 runNetboxBtn.addEventListener("click", () => {
   const limit = Number(syncLimitInput.value || 200);
   runAction(`/integrations/netbox/import?asyncJob=true&incremental=true&limit=${limit}`, "NetBox async job queued");
@@ -373,6 +595,28 @@ triggerBackstageScheduleBtn.addEventListener("click", () => {
 runLifecycleBtn.addEventListener("click", () => {
   runAction("/lifecycle/run", "Lifecycle run started");
 });
+if (exportAuditBtn) {
+  exportAuditBtn.addEventListener("click", async () => {
+    try {
+      const limit = Number(exportLimitInput?.value || 1000);
+      await downloadExport(`/audit/export?limit=${limit}`, `cmdb-audit-${timestampToken()}.ndjson`);
+      showFlash("Audit export downloaded.");
+    } catch (error) {
+      showFlash(error.message, true);
+    }
+  });
+}
+if (exportNetboxBtn) {
+  exportNetboxBtn.addEventListener("click", async () => {
+    try {
+      const limit = Number(exportLimitInput?.value || 1000);
+      await downloadExport(`/integrations/netbox/export?limit=${limit}`, `cmdb-netbox-${timestampToken()}.json`, true);
+      showFlash("NetBox export downloaded.");
+    } catch (error) {
+      showFlash(error.message, true);
+    }
+  });
+}
 if (refreshCollisionsBtn) {
   refreshCollisionsBtn.addEventListener("click", () => {
     loadCollisions().catch((error) => showFlash(error.message, true));
@@ -423,6 +667,7 @@ resolveDriftBtn.addEventListener("click", async () => {
 });
 
 tokenInput.value = "";
+resetCiFilterState();
 if (getToken()) {
   refreshAll();
 } else {
