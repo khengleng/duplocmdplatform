@@ -14,10 +14,11 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.core.telemetry import record_event
 from app.core.time import utcnow
-from app.models import SyncJob, SyncJobStatus, SyncState
+from app.models import SyncJob, SyncJobStatus
 from app.services.approvals import expire_pending_approvals
 from app.services.audit import append_audit_event
 from app.services.integrations import run_backstage_sync, run_netbox_import
+from app.services.sync_state import read_sync_state as _read_sync_state, write_sync_state as _write_sync_state
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -99,17 +100,7 @@ def _parse_iso_datetime(value: str | None) -> datetime | None:
         return None
 
 
-def _read_sync_state(db: Session, key: str) -> str | None:
-    state = db.get(SyncState, key)
-    return state.value if state else None
-
-
-def _write_sync_state(db: Session, key: str, value: str) -> None:
-    state = db.get(SyncState, key)
-    if state is None:
-        db.add(SyncState(key=key, value=value))
-        return
-    state.value = value
+# _read_sync_state and _write_sync_state are imported from app.services.sync_state
 
 
 def _schedule_definitions() -> dict[str, dict[str, Any]]:

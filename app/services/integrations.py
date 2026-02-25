@@ -6,7 +6,6 @@ import logging
 import time
 from datetime import datetime
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy import select
@@ -14,9 +13,16 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.logging import correlation_id_ctx
-from app.models import CI, SyncState
+from app.models import CI
 from app.schemas import CIPayload
+from app.services.jira import jira_client
 from app.services.reconciliation import reconcile_ci_payload
+from app.services.sync_state import (
+    is_non_dev_environment as _is_non_dev_environment,
+    read_sync_state as _read_sync_state,
+    validated_outbound_url as _validated_outbound_url_impl,
+    write_sync_state as _write_sync_state,
+)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -45,21 +51,9 @@ def _to_iso_datetime(value: datetime | None) -> str | None:
     return value.isoformat()
 
 
-def _is_non_dev_environment() -> bool:
-    return settings.app_env.strip().lower() not in {"dev", "development", "local", "test"}
-
-
 def _validated_outbound_url(url: str, target: str) -> str:
-    value = url.strip()
-    if not value:
-        return ""
-    parsed = urlparse(value)
-    scheme = parsed.scheme.lower()
-    if scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError(f"{target}_url_invalid")
-    if _is_non_dev_environment() and scheme != "https":
-        raise ValueError(f"{target}_url_requires_https")
-    return value
+    """Delegate to shared URL validator."""
+    return _validated_outbound_url_impl(url, target)
 
 
 def _authorization_value(token: str) -> str:
@@ -124,12 +118,14 @@ def _b64url_decode(data: str) -> bytes:
 
 
 def _legacy_backstage_token(secret: str) -> str:
+    """Generate a minimal HS256 JWT using the Backstage legacy shared secret."""
     key = _b64url_decode(secret)
     header = {"alg": "HS256", "typ": "JWT"}
     payload = {"sub": "backstage-server", "exp": int(time.time()) + 3600}
     encoded_header = _b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
     encoded_payload = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
     signing_input = f"{encoded_header}.{encoded_payload}".encode("utf-8")
+    # hmac.new is the correct HMAC constructor (same as hmac.HMAC)
     signature = hmac.new(key, signing_input, hashlib.sha256).digest()
     return f"{encoded_header}.{encoded_payload}.{_b64url_encode(signature)}"
 
@@ -466,17 +462,7 @@ def fetch_netbox_cis_incremental(
     }
 
 
-def _read_sync_state(db: Session, key: str) -> str | None:
-    state = db.get(SyncState, key)
-    return state.value if state else None
-
-
-def _write_sync_state(db: Session, key: str, value: str) -> None:
-    state = db.get(SyncState, key)
-    if state is None:
-        db.add(SyncState(key=key, value=value))
-        return
-    state.value = value
+# _read_sync_state and _write_sync_state are imported from app.services.sync_state
 
 
 def get_netbox_watermarks(db: Session) -> dict[str, str | None]:
@@ -507,10 +493,12 @@ def run_netbox_import(
     created = 0
     updated = 0
     collisions = 0
+    deferred_jira_tasks: list[dict[str, Any]] = []
 
     for ci_payload in batch["cis"]:
-        _, is_created, ci_collisions = reconcile_ci_payload(db, source="netbox", payload=ci_payload)
+        _, is_created, ci_collisions, jira_tasks = reconcile_ci_payload(db, source="netbox", payload=ci_payload)
         collisions += ci_collisions
+        deferred_jira_tasks.extend(jira_tasks)
         if is_created:
             created += 1
         else:
@@ -528,6 +516,11 @@ def run_netbox_import(
         if batch["vms"].get("exhausted") and isinstance(vms_max, str) and vms_max:
             _write_sync_state(db, NETBOX_VM_WATERMARK_KEY, vms_max)
             watermarks["vms_last_updated"] = vms_max
+
+    # Dispatch deferred Jira tasks after all DB work (post-commit side-effect)
+    if not dry_run:
+        for task in deferred_jira_tasks:
+            jira_client.create_issue(task["summary"], task["details"])
 
     return {
         "created": created,

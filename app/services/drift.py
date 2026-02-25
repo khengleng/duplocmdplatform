@@ -1,5 +1,5 @@
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy import select
@@ -7,24 +7,13 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models import CI, Identity
+from app.services.sync_state import valid_base_url as _valid_base_url
 
 settings = get_settings()
 
 
-def _is_non_dev_environment() -> bool:
-    return settings.app_env.strip().lower() not in {"dev", "development", "local", "test"}
+# _is_non_dev_environment and _valid_base_url are imported from app.services.sync_state
 
-
-def _valid_base_url(value: str) -> str:
-    base = value.strip().rstrip("/")
-    if not base:
-        return ""
-    parsed = urlparse(base)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        return ""
-    if _is_non_dev_environment() and parsed.scheme != "https":
-        return ""
-    return base
 
 
 def _netbox_api_base_url() -> str:

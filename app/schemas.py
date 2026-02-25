@@ -8,8 +8,8 @@ from app.models import ApprovalStatus, CIStatus, CollisionStatus, SyncJobStatus
 
 
 class IdentityPayload(BaseModel):
-    scheme: str
-    value: str
+    scheme: str = Field(..., min_length=1, max_length=100)
+    value: str = Field(..., min_length=1, max_length=255)
 
 
 class IdentityResponse(BaseModel):
@@ -19,16 +19,16 @@ class IdentityResponse(BaseModel):
 
 
 class CIPayload(BaseModel):
-    name: str
-    ci_type: str
-    owner: str | None = None
+    name: str = Field(..., min_length=1, max_length=255)
+    ci_type: str = Field(..., min_length=1, max_length=100)
+    owner: str | None = Field(default=None, max_length=255)
     attributes: dict[str, Any] = Field(default_factory=dict)
     identities: list[IdentityPayload]
     last_seen_at: datetime | None = None
 
 
 class CIBulkIngestRequest(BaseModel):
-    source: str
+    source: str = Field(..., min_length=1, max_length=100)
     cis: list[CIPayload]
 
 
@@ -48,11 +48,11 @@ class RelationshipRef(BaseModel):
 class RelationshipPayload(BaseModel):
     source_ref: RelationshipRef
     target_ref: RelationshipRef
-    relation_type: str
+    relation_type: str = Field(..., min_length=1, max_length=100)
 
 
 class RelationshipBulkIngestRequest(BaseModel):
-    source: str
+    source: str = Field(..., min_length=1, max_length=100)
     relationships: list[RelationshipPayload]
 
 

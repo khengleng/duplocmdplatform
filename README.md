@@ -266,3 +266,36 @@ Incoming `x-correlation-id` header is preserved; otherwise one is generated per 
   - `DATABASE_URL=<postgres-url> ./scripts/postgres_backup.sh`
 - Backup + restore validation drill:
   - `DATABASE_URL=<source-postgres-url> RESTORE_CHECK_DATABASE_URL=<target-postgres-url> ./scripts/postgres_restore_check.sh`
+
+## CI/CD Hardening
+
+GitHub Actions now enforces quality/security/build checks before deployment:
+
+- `CI` workflow:
+  - Python compile check: `python -m compileall app alembic`
+  - Lint: `ruff check app alembic scripts tests`
+  - Unit/smoke tests: `pytest -q`
+  - Frontend syntax check: `node --check app/static/portal/portal.js`
+  - Security scan: `bandit -q -r app -lll -iii`
+  - Docker build validation
+
+- `Deploy` workflow (main branch only):
+  1. Waits for successful `CI`.
+  2. Deploys staging service on Railway.
+  3. Runs staging smoke gate (`/health` = `200`, unauthenticated `/dashboard/alerts` = `401`).
+  4. Deploys production only after staging gate passes.
+  5. Runs production smoke checks after deploy.
+
+Required repository secrets for deploy workflow:
+
+- `RAILWAY_TOKEN`
+- `RAILWAY_PROJECT_ID`
+- `RAILWAY_ENVIRONMENT`
+- `RAILWAY_STAGING_SERVICE`
+- `RAILWAY_STAGING_BASE_URL`
+- `RAILWAY_PRODUCTION_SERVICE`
+- `RAILWAY_PRODUCTION_BASE_URL`
+
+Optional GitHub environment protection:
+
+- Configure the `production` environment in GitHub with required reviewers to enforce manual approval between staging and production deployment.

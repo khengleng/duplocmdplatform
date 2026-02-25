@@ -1,0 +1,155 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    outputs:
+      ref: ${{ steps.resolve_ref.outputs.ref }}
+    steps:
+      - name: Resolve deployment ref
+        id: resolve_ref
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "ref=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate required deployment secrets
+        shell: bash
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
+          RAILWAY_STAGING_SERVICE: ${{ secrets.RAILWAY_STAGING_SERVICE }}
+          RAILWAY_STAGING_BASE_URL: ${{ secrets.RAILWAY_STAGING_BASE_URL }}
+          RAILWAY_PRODUCTION_SERVICE: ${{ secrets.RAILWAY_PRODUCTION_SERVICE }}
+          RAILWAY_PRODUCTION_BASE_URL: ${{ secrets.RAILWAY_PRODUCTION_BASE_URL }}
+        run: |
+          missing=0
+          for key in \
+            RAILWAY_TOKEN \
+            RAILWAY_PROJECT_ID \
+            RAILWAY_ENVIRONMENT \
+            RAILWAY_STAGING_SERVICE \
+            RAILWAY_STAGING_BASE_URL \
+            RAILWAY_PRODUCTION_SERVICE \
+            RAILWAY_PRODUCTION_BASE_URL; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Missing required secret: $key"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to staging
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
+          RAILWAY_SERVICE: ${{ secrets.RAILWAY_STAGING_SERVICE }}
+        run: |
+          railway up \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$RAILWAY_ENVIRONMENT" \
+            --service "$RAILWAY_SERVICE" \
+            --detach
+
+      - name: Wait for staging deployment
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
+          RAILWAY_SERVICE: ${{ secrets.RAILWAY_STAGING_SERVICE }}
+          RAILWAY_DEPLOY_TIMEOUT_SECONDS: "900"
+        run: ./scripts/wait_for_railway_service.sh
+
+      - name: Smoke test staging
+        env:
+          CMDB_BASE_URL: ${{ secrets.RAILWAY_STAGING_BASE_URL }}
+        run: ./scripts/smoke_check.sh
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - deploy-staging
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to production
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
+          RAILWAY_SERVICE: ${{ secrets.RAILWAY_PRODUCTION_SERVICE }}
+        run: |
+          railway up \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$RAILWAY_ENVIRONMENT" \
+            --service "$RAILWAY_SERVICE" \
+            --detach
+
+      - name: Wait for production deployment
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
+          RAILWAY_SERVICE: ${{ secrets.RAILWAY_PRODUCTION_SERVICE }}
+          RAILWAY_DEPLOY_TIMEOUT_SECONDS: "900"
+        run: ./scripts/wait_for_railway_service.sh
+
+      - name: Smoke test production
+        env:
+          CMDB_BASE_URL: ${{ secrets.RAILWAY_PRODUCTION_BASE_URL }}
+        run: ./scripts/smoke_check.sh

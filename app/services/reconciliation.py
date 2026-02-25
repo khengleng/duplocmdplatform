@@ -1,3 +1,5 @@
+from typing import Any
+
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
@@ -6,7 +8,6 @@ from app.core.time import normalize_utc_naive, utcnow
 from app.models import CI, Identity, GovernanceCollision
 from app.schemas import CIPayload, IdentityPayload
 from app.services.audit import append_audit_event
-from app.services.jira import jira_client
 
 
 settings = get_settings()
@@ -75,16 +76,17 @@ def _create_collision(
             "source": source,
         },
     )
-    jira_client.create_issue(
-        summary=f"Identity collision: {scheme}:{value}",
-        details={
+    # Return Jira task dict to be dispatched by the caller after commit
+    return {
+        "summary": f"Identity collision: {scheme}:{value}",
+        "details": {
             "scheme": scheme,
             "value": value,
             "existing_ci_id": existing_ci_id,
             "incoming_ci_id": incoming_ci_id,
             "source": source,
         },
-    )
+    }
 
 
 def _append_identity_if_missing(payload: CIPayload, scheme: str, value: str) -> None:
@@ -132,8 +134,10 @@ def _ensure_cmdb_identity(db: Session, ci: CI) -> None:
         db.add(Identity(ci_id=ci.id, scheme="cmdb_ci_id", value=ci.id))
 
 
-def _ensure_identities(db: Session, ci: CI, payload: CIPayload, source: str) -> int:
+def _ensure_identities(db: Session, ci: CI, payload: CIPayload, source: str) -> tuple[int, list[dict]]:
+    """Ensure all identities are present. Returns (collision_count, jira_tasks)."""
     collisions = 0
+    jira_tasks: list[dict] = []
     for ident in payload.identities:
         stmt = select(Identity).where(Identity.scheme == ident.scheme, Identity.value == ident.value)
         match = db.scalar(stmt)
@@ -142,7 +146,7 @@ def _ensure_identities(db: Session, ci: CI, payload: CIPayload, source: str) -> 
             continue
 
         if match.ci_id != ci.id:
-            _create_collision(
+            task = _create_collision(
                 db,
                 scheme=ident.scheme,
                 value=ident.value,
@@ -150,13 +154,28 @@ def _ensure_identities(db: Session, ci: CI, payload: CIPayload, source: str) -> 
                 incoming_ci_id=ci.id,
                 source=source,
             )
+            if task:
+                jira_tasks.append(task)
             collisions += 1
-    return collisions
+    return collisions, jira_tasks
 
 
-def reconcile_ci_payload(db: Session, source: str, payload: CIPayload) -> tuple[CI, bool, int]:
+def reconcile_ci_payload(
+    db: Session, source: str, payload: CIPayload
+) -> tuple[CI, bool, int, list[dict]]:
+    """
+    Reconcile an incoming CI payload against the CMDB.
+
+    Returns:
+        (ci, is_created, collision_count, jira_tasks)
+
+    ``jira_tasks`` is a list of ``{"summary": str, "details": dict}`` dicts
+    that the caller should dispatch to Jira *after* committing the DB transaction
+    to avoid blocking writes on external HTTP latency.
+    """
     _augment_deterministic_identities(source, payload)
     now = normalize_utc_naive(payload.last_seen_at) or utcnow()
+    jira_tasks: list[dict] = []
 
     matched_cis: list[CI] = []
     for ident in payload.identities:
@@ -176,7 +195,8 @@ def reconcile_ci_payload(db: Session, source: str, payload: CIPayload) -> tuple[
         db.add(ci)
         db.flush()
         _ensure_cmdb_identity(db, ci)
-        collisions = _ensure_identities(db, ci, payload, source)
+        collisions, id_tasks = _ensure_identities(db, ci, payload, source)
+        jira_tasks.extend(id_tasks)
 
         append_audit_event(
             db,
@@ -185,10 +205,11 @@ def reconcile_ci_payload(db: Session, source: str, payload: CIPayload) -> tuple[
             payload={"source": source, "identities": [i.model_dump() for i in payload.identities]},
         )
         if not ci.owner:
-            jira_client.create_issue("Missing CI ownership", {"ci_id": ci.id, "name": ci.name})
+            # Deferred: caller fires Jira after commit
+            jira_tasks.append({"summary": "Missing CI ownership", "details": {"ci_id": ci.id, "name": ci.name}})
             append_audit_event(db, "governance.owner.missing", {"ci_id": ci.id, "name": ci.name}, ci_id=ci.id)
 
-        return ci, True, collisions
+        return ci, True, collisions, jira_tasks
 
     ci = matched_cis[0]
     collisions = 0
@@ -196,7 +217,7 @@ def reconcile_ci_payload(db: Session, source: str, payload: CIPayload) -> tuple[
         for conflict in matched_cis[1:]:
             for ident in payload.identities:
                 if _find_ci_by_identity(db, ident.scheme, ident.value) and conflict.id != ci.id:
-                    _create_collision(
+                    task = _create_collision(
                         db,
                         scheme=ident.scheme,
                         value=ident.value,
@@ -204,6 +225,8 @@ def reconcile_ci_payload(db: Session, source: str, payload: CIPayload) -> tuple[
                         incoming_ci_id=conflict.id,
                         source=source,
                     )
+                    if task:
+                        jira_tasks.append(task)
                     collisions += 1
 
     if _incoming_has_precedence(ci.source, source):
@@ -223,10 +246,12 @@ def reconcile_ci_payload(db: Session, source: str, payload: CIPayload) -> tuple[
 
     ci.last_seen_at = now
     _ensure_cmdb_identity(db, ci)
-    collisions += _ensure_identities(db, ci, payload, source)
+    id_collisions, id_tasks = _ensure_identities(db, ci, payload, source)
+    collisions += id_collisions
+    jira_tasks.extend(id_tasks)
 
     if not ci.owner:
-        jira_client.create_issue("Missing CI ownership", {"ci_id": ci.id, "name": ci.name})
+        jira_tasks.append({"summary": "Missing CI ownership", "details": {"ci_id": ci.id, "name": ci.name}})
         append_audit_event(db, "governance.owner.missing", {"ci_id": ci.id, "name": ci.name}, ci_id=ci.id)
 
-    return ci, False, collisions
+    return ci, False, collisions, jira_tasks

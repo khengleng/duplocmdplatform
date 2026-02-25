@@ -19,6 +19,7 @@ from app.schemas import (
 )
 from app.services.audit import append_audit_event
 from app.services.integrations import publish_ci_event
+from app.services.jira import jira_client
 from app.services.reconciliation import reconcile_ci_payload
 
 settings = get_settings()
@@ -193,11 +194,13 @@ def ingest_cis_bulk(
     collisions = 0
     staged = 0
     events: list[tuple[str, dict[str, Any]]] = []
+    deferred_jira_tasks: list[dict] = []
 
     try:
         for ci_payload in cis:
-            ci, is_created, ci_collisions = reconcile_ci_payload(db, source=source, payload=ci_payload)
+            ci, is_created, ci_collisions, jira_tasks = reconcile_ci_payload(db, source=source, payload=ci_payload)
             collisions += ci_collisions
+            deferred_jira_tasks.extend(jira_tasks)
             if is_created:
                 created += 1
                 events.append(("ci.created", _ci_event_payload(ci, source)))
@@ -215,8 +218,15 @@ def ingest_cis_bulk(
         raise HTTPException(status_code=409, detail="Ingest conflict") from exc
 
     if not dry_run:
+        # Dispatch integration events — fire-and-forget, errors logged inside
         for event_type, event_payload in events:
-            publish_ci_event(event_type=event_type, payload=event_payload)
+            try:
+                publish_ci_event(event_type=event_type, payload=event_payload)
+            except Exception:  # noqa: BLE001
+                pass
+        # Dispatch deferred Jira tasks after commit so they never block writes
+        for task in deferred_jira_tasks:
+            jira_client.create_issue(task["summary"], task["details"])
 
     return CIBulkIngestResult(
         created=created,
