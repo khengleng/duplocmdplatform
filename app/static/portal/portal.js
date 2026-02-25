@@ -12,8 +12,8 @@ const triggerNetboxScheduleBtn = document.getElementById("triggerNetboxScheduleB
 const triggerBackstageScheduleBtn = document.getElementById("triggerBackstageScheduleBtn");
 const runLifecycleBtn = document.getElementById("runLifecycleBtn");
 
-const relSourceInput = document.getElementById("relSourceCiId");
-const relTargetInput = document.getElementById("relTargetCiId");
+const relSourceSelect = document.getElementById("relSourceCiId");
+const relTargetSelect = document.getElementById("relTargetCiId");
 const relTypeInput = document.getElementById("relType");
 const createRelationshipBtn = document.getElementById("createRelationshipBtn");
 
@@ -80,6 +80,51 @@ function updateScopeUi(scope) {
       el.title = "";
     }
   });
+}
+
+function createCiOption(ci) {
+  const option = document.createElement("option");
+  option.value = ci.id;
+  option.textContent = `${ci.name} (${ci.ci_type}) - ${ci.id}`;
+  return option;
+}
+
+function setRelationshipSelectOptions(cis) {
+  const previousSource = relSourceSelect.value;
+  const previousTarget = relTargetSelect.value;
+
+  relSourceSelect.innerHTML = "";
+  relTargetSelect.innerHTML = "";
+
+  const sourcePlaceholder = document.createElement("option");
+  sourcePlaceholder.value = "";
+  sourcePlaceholder.textContent = "Select source CI";
+  relSourceSelect.appendChild(sourcePlaceholder);
+
+  const targetPlaceholder = document.createElement("option");
+  targetPlaceholder.value = "";
+  targetPlaceholder.textContent = "Select target CI";
+  relTargetSelect.appendChild(targetPlaceholder);
+
+  cis.forEach((ci) => {
+    relSourceSelect.appendChild(createCiOption(ci));
+    relTargetSelect.appendChild(createCiOption(ci));
+  });
+
+  if (previousSource && cis.some((ci) => ci.id === previousSource)) {
+    relSourceSelect.value = previousSource;
+  } else if (selectedCiId && cis.some((ci) => ci.id === selectedCiId)) {
+    relSourceSelect.value = selectedCiId;
+  }
+
+  if (previousTarget && cis.some((ci) => ci.id === previousTarget)) {
+    relTargetSelect.value = previousTarget;
+  }
+}
+
+async function loadCiOptions() {
+  const cis = await api("/pickers/cis?limit=200");
+  setRelationshipSelectOptions(cis);
 }
 
 async function loadAuthMe() {
@@ -197,7 +242,9 @@ async function loadRelationshipsForSelectedCi() {
 
 async function selectCi(ciId) {
   selectedCiId = ciId;
-  relSourceInput.value = ciId;
+  if ([...relSourceSelect.options].some((option) => option.value === ciId)) {
+    relSourceSelect.value = ciId;
+  }
   await Promise.all([loadCiDetail(ciId), loadCiDrift(ciId), loadRelationshipsForSelectedCi(), loadCis()]);
 }
 
@@ -214,7 +261,9 @@ async function loadCiDrift(ciId) {
 
 async function refreshAll() {
   try {
-    await Promise.all([loadAuthMe(), loadSummary(), loadJobs(), loadCollisions(), loadActivity(), loadCis()]);
+    await loadAuthMe();
+    await loadCiOptions();
+    await Promise.all([loadSummary(), loadJobs(), loadCollisions(), loadActivity(), loadCis()]);
     if (selectedCiId) {
       await Promise.all([loadCiDetail(selectedCiId), loadCiDrift(selectedCiId), loadRelationshipsForSelectedCi()]);
     }
@@ -270,8 +319,8 @@ runLifecycleBtn.addEventListener("click", () => {
 });
 
 createRelationshipBtn.addEventListener("click", async () => {
-  const sourceCi = relSourceInput.value.trim();
-  const targetCi = relTargetInput.value.trim();
+  const sourceCi = relSourceSelect.value;
+  const targetCi = relTargetSelect.value;
   const relationType = relTypeInput.value.trim();
   if (!sourceCi || !targetCi || !relationType) {
     showFlash("Source CI, Target CI, and Relation Type are required.", true);
