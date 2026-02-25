@@ -55,6 +55,7 @@ This repository provides a thin CMDB Core service and source connectors for:
 - `GET /cis/{id}/audit`
 - `GET /pickers/cis`
 - `POST /governance/collisions/{id}/resolve`
+- `POST /governance/collisions/{id}/reopen`
 - `GET /relationships`
 - `POST /relationships`
 - `PATCH /relationships/{id}`

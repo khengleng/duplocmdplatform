@@ -11,6 +11,8 @@ const runBackstageBtn = document.getElementById("runBackstageBtn");
 const triggerNetboxScheduleBtn = document.getElementById("triggerNetboxScheduleBtn");
 const triggerBackstageScheduleBtn = document.getElementById("triggerBackstageScheduleBtn");
 const runLifecycleBtn = document.getElementById("runLifecycleBtn");
+const collisionStatusFilter = document.getElementById("collisionStatusFilter");
+const refreshCollisionsBtn = document.getElementById("refreshCollisionsBtn");
 
 const relSourceSelect = document.getElementById("relSourceCiId");
 const relTargetSelect = document.getElementById("relTargetCiId");
@@ -188,14 +190,55 @@ async function loadJobs() {
 }
 
 async function loadCollisions() {
-  const collisions = await api("/governance/collisions");
+  const statusFilter = collisionStatusFilter ? collisionStatusFilter.value : "open";
+  const collisions = await api(`/governance/collisions?status=${encodeURIComponent(statusFilter)}`);
   const rows = collisions.slice(0, 20).map((collision) => {
     const tr = document.createElement("tr");
     tr.appendChild(td(collision.id));
     tr.appendChild(td(`${collision.scheme}:${collision.value}`, "mono"));
     tr.appendChild(td(collision.existing_ci_id, "mono"));
     tr.appendChild(td(collision.incoming_ci_id, "mono"));
+    tr.appendChild(td(collision.status));
+    tr.appendChild(td(collision.resolution_note || "-"));
+    tr.appendChild(td(collision.resolved_at || "-"));
     tr.appendChild(td(collision.created_at));
+    const actionCell = document.createElement("td");
+    if (currentScope === "operator") {
+      if (collision.status === "OPEN") {
+        const resolveBtn = document.createElement("button");
+        resolveBtn.className = "btn";
+        resolveBtn.textContent = "Resolve";
+        resolveBtn.addEventListener("click", async () => {
+          const note = window.prompt("Resolution note for this collision:");
+          if (note == null || !note.trim()) return;
+          await runAction(
+            `/governance/collisions/${collision.id}/resolve`,
+            "Collision resolved",
+            "POST",
+            { resolution_note: note.trim() },
+          );
+        });
+        actionCell.appendChild(resolveBtn);
+      } else {
+        const reopenBtn = document.createElement("button");
+        reopenBtn.className = "btn";
+        reopenBtn.textContent = "Reopen";
+        reopenBtn.addEventListener("click", async () => {
+          const note = window.prompt("Reopen note for this collision:");
+          if (note == null || !note.trim()) return;
+          await runAction(
+            `/governance/collisions/${collision.id}/reopen`,
+            "Collision reopened",
+            "POST",
+            { reopen_note: note.trim() },
+          );
+        });
+        actionCell.appendChild(reopenBtn);
+      }
+    } else {
+      actionCell.textContent = "Read-only";
+    }
+    tr.appendChild(actionCell);
     return tr;
   });
   renderRows("collisionRows", rows);
@@ -330,6 +373,16 @@ triggerBackstageScheduleBtn.addEventListener("click", () => {
 runLifecycleBtn.addEventListener("click", () => {
   runAction("/lifecycle/run", "Lifecycle run started");
 });
+if (refreshCollisionsBtn) {
+  refreshCollisionsBtn.addEventListener("click", () => {
+    loadCollisions().catch((error) => showFlash(error.message, true));
+  });
+}
+if (collisionStatusFilter) {
+  collisionStatusFilter.addEventListener("change", () => {
+    loadCollisions().catch((error) => showFlash(error.message, true));
+  });
+}
 
 createRelationshipBtn.addEventListener("click", async () => {
   const sourceCi = relSourceSelect.value;

@@ -177,6 +177,17 @@
 
       <section class="panel">
         <h2>Open Collisions</h2>
+        <div class="actions">
+          <label>
+            Status
+            <select id="collisionStatusFilter">
+              <option value="open">Open</option>
+              <option value="resolved">Resolved</option>
+              <option value="all">All</option>
+            </select>
+          </label>
+          <button id="refreshCollisionsBtn" class="btn">Refresh Collisions</button>
+        </div>
         <table>
           <thead>
             <tr>
@@ -184,7 +195,11 @@
               <th>Identity</th>
               <th>Existing CI</th>
               <th>Incoming CI</th>
+              <th>Status</th>
+              <th>Resolution Note</th>
+              <th>Resolved At</th>
               <th>Created</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody id="collisionRows"></tbody>

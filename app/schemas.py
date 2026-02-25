@@ -137,6 +137,10 @@ class CollisionResolveRequest(BaseModel):
     resolution_note: str
 
 
+class CollisionReopenRequest(BaseModel):
+    reopen_note: str
+
+
 class CollisionResponse(BaseModel):
     id: int
     scheme: str
