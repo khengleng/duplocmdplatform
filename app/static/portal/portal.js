@@ -40,6 +40,17 @@ const ciGraphDownstream = document.getElementById("ciGraphDownstream");
 const exportLimitInput = document.getElementById("exportLimit");
 const exportAuditBtn = document.getElementById("exportAuditBtn");
 const exportNetboxBtn = document.getElementById("exportNetboxBtn");
+const approvalHeaderInput = document.getElementById("approvalHeaderInput");
+const approvalStatusFilter = document.getElementById("approvalStatusFilter");
+const refreshApprovalsBtn = document.getElementById("refreshApprovalsBtn");
+const approvalMethodSelect = document.getElementById("approvalMethod");
+const approvalPathInput = document.getElementById("approvalPath");
+const approvalQueryInput = document.getElementById("approvalQuery");
+const approvalTtlInput = document.getElementById("approvalTtl");
+const approvalReasonInput = document.getElementById("approvalReason");
+const approvalPayloadInput = document.getElementById("approvalPayload");
+const createApprovalBtn = document.getElementById("createApprovalBtn");
+const alertCountsPre = document.getElementById("alertCounts");
 
 let selectedCiId = null;
 let currentScope = "viewer";
@@ -63,6 +74,14 @@ function setToken(token) {
   localStorage.setItem("cmdb_service_token", token);
 }
 
+function getApprovalHeader() {
+  return localStorage.getItem("cmdb_approval_id") || "";
+}
+
+function setApprovalHeader(value) {
+  localStorage.setItem("cmdb_approval_id", value || "");
+}
+
 function showFlash(message, isError = false) {
   flash.textContent = message;
   flash.classList.remove("hidden");
@@ -82,6 +101,30 @@ async function api(path, options = {}) {
     throw new Error(`${response.status} ${response.statusText}: ${body}`);
   }
   return response.json();
+}
+
+function approvalHeaderValue() {
+  return (approvalHeaderInput?.value || "").trim();
+}
+
+function buildMutationHeaders(body) {
+  const headers = {};
+  if (body !== null && body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  const approvalId = approvalHeaderValue();
+  if (approvalId) {
+    headers["x-cmdb-approval-id"] = approvalId;
+  }
+  return headers;
+}
+
+function parseJsonText(rawText, fallback = {}) {
+  const normalized = (rawText || "").trim();
+  if (!normalized) {
+    return fallback;
+  }
+  return JSON.parse(normalized);
 }
 
 function ciLabel(ciId) {
@@ -189,6 +232,14 @@ function updateScopeUi(scope) {
       el.title = "";
     }
   });
+  document.querySelectorAll(".approver-action").forEach((el) => {
+    el.disabled = currentScope !== "approver";
+    if (currentScope !== "approver") {
+      el.title = "Approver scope required";
+    } else {
+      el.title = "";
+    }
+  });
 }
 
 function createCiOption(ci) {
@@ -256,6 +307,71 @@ async function loadSummary() {
   document.getElementById("kpiJobsFailed").textContent = summary.sync.jobs_failed;
   document.getElementById("watermarks").textContent = JSON.stringify(summary.sync.netbox_watermarks, null, 2);
   document.getElementById("sources").textContent = JSON.stringify(summary.distributions.by_source, null, 2);
+}
+
+async function loadAlerts() {
+  const snapshot = await api("/dashboard/alerts");
+  if (alertCountsPre) {
+    alertCountsPre.textContent = JSON.stringify(snapshot.counts || {}, null, 2);
+  }
+
+  const rules = Array.isArray(snapshot.rules) ? snapshot.rules : [];
+  const rows = rules.map((rule) => {
+    const tr = document.createElement("tr");
+    tr.appendChild(td(rule.message || rule.id));
+    tr.appendChild(td(rule.severity || "unknown"));
+    tr.appendChild(td(rule.threshold));
+    tr.appendChild(td(rule.current));
+    tr.appendChild(td(rule.active ? "ACTIVE" : "OK", rule.active ? "alert-active" : "alert-ok"));
+    return tr;
+  });
+  renderRows("alertRows", rows);
+}
+
+async function loadApprovals() {
+  const params = new URLSearchParams({ limit: "50" });
+  const status = approvalStatusFilter?.value || "";
+  if (status) {
+    params.set("status", status);
+  }
+  const approvals = await api(`/approvals?${params.toString()}`);
+  const rows = approvals.map((approval) => {
+    const tr = document.createElement("tr");
+    tr.appendChild(td(approval.id.slice(0, 8), "mono"));
+    tr.appendChild(td(approval.status));
+    tr.appendChild(td(approval.method));
+    tr.appendChild(td(approval.request_path, "mono"));
+    tr.appendChild(td(approval.requested_by || "-"));
+    tr.appendChild(td(approval.expires_at || "-"));
+    tr.appendChild(td(approval.decision_note || approval.decided_by || "-"));
+
+    const actionCell = document.createElement("td");
+    if (currentScope === "approver" && approval.status === "PENDING") {
+      const approveBtn = document.createElement("button");
+      approveBtn.className = "btn approver-action";
+      approveBtn.textContent = "Approve";
+      approveBtn.addEventListener("click", async () => {
+        const note = window.prompt("Approval note (optional):") || "";
+        await runAction(`/approvals/${approval.id}/approve`, "Approval approved", "POST", { note });
+      });
+
+      const rejectBtn = document.createElement("button");
+      rejectBtn.className = "btn approver-action";
+      rejectBtn.textContent = "Reject";
+      rejectBtn.addEventListener("click", async () => {
+        const note = window.prompt("Rejection note (optional):") || "";
+        await runAction(`/approvals/${approval.id}/reject`, "Approval rejected", "POST", { note });
+      });
+
+      actionCell.appendChild(approveBtn);
+      actionCell.appendChild(rejectBtn);
+    } else {
+      actionCell.textContent = currentScope === "approver" ? "-" : "Read-only";
+    }
+    tr.appendChild(actionCell);
+    return tr;
+  });
+  renderRows("approvalRows", rows);
 }
 
 async function loadCis() {
@@ -390,7 +506,7 @@ async function loadRelationshipsForSelectedCi() {
       btn.className = "btn";
       btn.textContent = "Delete";
       btn.addEventListener("click", async () => {
-        await runAction(`/relationships/${rel.id}`, "Relationship deleted", "DELETE", {});
+        await runAction(`/relationships/${rel.id}`, "Relationship deleted", "DELETE");
       });
       actionCell.appendChild(btn);
     } else {
@@ -499,7 +615,7 @@ async function refreshAll() {
     const hadSelectedCi = Boolean(selectedCiId);
     await loadAuthMe();
     await loadCiOptions();
-    await Promise.all([loadSummary(), loadJobs(), loadCollisions(), loadActivity(), loadCis()]);
+    await Promise.all([loadSummary(), loadJobs(), loadCollisions(), loadActivity(), loadCis(), loadAlerts(), loadApprovals()]);
     if (selectedCiId && hadSelectedCi) {
       await Promise.all([
         loadCiDetail(selectedCiId),
@@ -516,15 +632,18 @@ async function refreshAll() {
 
 async function runAction(path, message, method = "POST", body = null) {
   try {
+    const headers = buildMutationHeaders(body);
     const result = await api(path, {
       method,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      headers: Object.keys(headers).length ? headers : undefined,
       body: body ? JSON.stringify(body) : undefined,
     });
     showFlash(`${message}: ${JSON.stringify(result)}`);
     await refreshAll();
+    return result;
   } catch (error) {
     showFlash(error.message, true);
+    return null;
   }
 }
 
@@ -541,6 +660,55 @@ saveTokenBtn.addEventListener("click", () => {
 });
 
 refreshBtn.addEventListener("click", refreshAll);
+if (approvalHeaderInput) {
+  approvalHeaderInput.addEventListener("change", () => {
+    setApprovalHeader(approvalHeaderValue());
+  });
+}
+if (refreshApprovalsBtn) {
+  refreshApprovalsBtn.addEventListener("click", () => {
+    loadApprovals().catch((error) => showFlash(error.message, true));
+  });
+}
+if (approvalStatusFilter) {
+  approvalStatusFilter.addEventListener("change", () => {
+    loadApprovals().catch((error) => showFlash(error.message, true));
+  });
+}
+if (createApprovalBtn) {
+  createApprovalBtn.addEventListener("click", async () => {
+    const method = approvalMethodSelect?.value || "POST";
+    const path = (approvalPathInput?.value || "").trim();
+    const query = (approvalQueryInput?.value || "").trim();
+    const reason = (approvalReasonInput?.value || "").trim();
+    const ttl = Number(approvalTtlInput?.value || 30);
+    if (!path.startsWith("/")) {
+      showFlash("Approval path must start with '/'.", true);
+      return;
+    }
+
+    let payload = null;
+    try {
+      payload = parseJsonText(approvalPayloadInput?.value || "", null);
+    } catch (error) {
+      showFlash(`Invalid approval payload JSON: ${error.message}`, true);
+      return;
+    }
+
+    const created = await runAction("/approvals", "Approval requested", "POST", {
+      method,
+      path,
+      query: query || null,
+      reason: reason || null,
+      payload,
+      ttl_minutes: Number.isFinite(ttl) ? ttl : 30,
+    });
+    if (created?.id && approvalHeaderInput) {
+      approvalHeaderInput.value = created.id;
+      setApprovalHeader(created.id);
+    }
+  });
+}
 if (applyCiFiltersBtn) {
   applyCiFiltersBtn.addEventListener("click", () => {
     applyCiFilters().catch((error) => showFlash(error.message, true));
@@ -667,6 +835,9 @@ resolveDriftBtn.addEventListener("click", async () => {
 });
 
 tokenInput.value = "";
+if (approvalHeaderInput) {
+  approvalHeaderInput.value = getApprovalHeader();
+}
 resetCiFilterState();
 if (getToken()) {
   refreshAll();

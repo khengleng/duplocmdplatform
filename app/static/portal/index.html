@@ -42,6 +42,31 @@
       </section>
 
       <section class="panel">
+        <h2>Security Alerts (Last 5m)</h2>
+        <div class="split">
+          <div>
+            <h3>Rules</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Alert</th>
+                  <th>Severity</th>
+                  <th>Threshold</th>
+                  <th>Current</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="alertRows"></tbody>
+            </table>
+          </div>
+          <div>
+            <h3>Event Counters</h3>
+            <pre id="alertCounts">-</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
         <h2>Sync Control</h2>
         <div class="actions">
           <label>
@@ -223,6 +248,74 @@
             </tr>
           </thead>
           <tbody id="relationshipRows"></tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h2>Approvals (Maker-Checker)</h2>
+        <div class="actions">
+          <label>
+            Approval ID Header
+            <input id="approvalHeaderInput" type="text" placeholder="x-cmdb-approval-id for mutating actions" />
+          </label>
+          <label>
+            Filter
+            <select id="approvalStatusFilter">
+              <option value="PENDING">PENDING</option>
+              <option value="APPROVED">APPROVED</option>
+              <option value="REJECTED">REJECTED</option>
+              <option value="CONSUMED">CONSUMED</option>
+              <option value="">All</option>
+            </select>
+          </label>
+          <button id="refreshApprovalsBtn" class="btn">Refresh Approvals</button>
+        </div>
+        <div class="actions">
+          <label>
+            Method
+            <select id="approvalMethod">
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="PATCH">PATCH</option>
+              <option value="DELETE">DELETE</option>
+            </select>
+          </label>
+          <label>
+            Path
+            <input id="approvalPath" type="text" value="/relationships" />
+          </label>
+          <label>
+            Query
+            <input id="approvalQuery" type="text" placeholder="ci_id=..." />
+          </label>
+          <label>
+            TTL (minutes)
+            <input id="approvalTtl" type="number" min="1" max="1440" value="30" />
+          </label>
+          <label>
+            Reason
+            <input id="approvalReason" type="text" placeholder="why this change is needed" />
+          </label>
+          <label class="wide">
+            Payload (JSON)
+            <textarea id="approvalPayload" rows="3" placeholder='{"source_ci_id":"...","target_ci_id":"...","relation_type":"depends_on","source":"portal"}'></textarea>
+          </label>
+          <button id="createApprovalBtn" class="btn btn-accent operator-action">Create Approval Request</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Status</th>
+              <th>Method</th>
+              <th>Path</th>
+              <th>Requested By</th>
+              <th>Expires</th>
+              <th>Decision</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="approvalRows"></tbody>
         </table>
       </section>
 

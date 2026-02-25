@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.core.database import Base, engine
 from app.core.logging import configure_logging, correlation_middleware
 from app.core.security import enforce_global_rate_limit, require_service_auth
+from app.core.telemetry import record_event
 from app.routers import approvals, audit, cis, dashboard, governance, ingest, integrations, lifecycle, relationships
 from app.schemas import HealthResponse
 from app.services.sync_jobs import start_sync_worker, stop_sync_worker
@@ -60,6 +61,7 @@ def _error_response(
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     status_code = exc.status_code
     if status_code >= 500:
+        record_event("api.server_error")
         if status_code == 503:
             return _error_response(
                 request,
@@ -97,6 +99,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled application exception")
+    record_event("api.server_error")
     return _error_response(
         request,
         status_code=500,
@@ -111,6 +114,7 @@ async def global_rate_limit_middleware(request: Request, call_next):
         return await call_next(request)
 
     if not enforce_global_rate_limit(request):
+        record_event("api.rate_limited")
         return _error_response(
             request,
             status_code=429,
@@ -171,6 +175,7 @@ async def request_timeout_middleware(request: Request, call_next):
         with anyio.fail_after(timeout_seconds):
             return await call_next(request)
     except TimeoutError:
+        record_event("api.server_error")
         return _error_response(
             request,
             status_code=504,

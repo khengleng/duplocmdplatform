@@ -145,6 +145,16 @@ select {
   color: var(--ink);
 }
 
+textarea {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  min-width: 320px;
+  resize: vertical;
+  font-family: "IBM Plex Mono", "SF Mono", monospace;
+}
+
 .btn {
   border: 1px solid #a8b7cf;
   background: #f8fbff;
@@ -255,6 +265,14 @@ select {
   min-width: 280px;
 }
 
+.actions label textarea {
+  min-width: 320px;
+}
+
+.actions label.wide {
+  flex: 1 1 360px;
+}
+
 .ci-filters label input,
 .ci-filters label select {
   min-width: 160px;
@@ -317,6 +335,10 @@ td {
   vertical-align: top;
 }
 
+td .btn + .btn {
+  margin-left: 6px;
+}
+
 th {
   color: var(--muted);
   font-size: 0.76rem;
@@ -356,6 +378,16 @@ th {
 
 .graph-empty {
   color: var(--muted);
+}
+
+.alert-active {
+  color: var(--bad);
+  font-weight: 700;
+}
+
+.alert-ok {
+  color: var(--ok);
+  font-weight: 600;
 }
 
 @media (max-width: 920px) {

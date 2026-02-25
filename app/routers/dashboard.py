@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import require_service_auth
+from app.core.telemetry import get_alert_snapshot
 from app.core.time import utcnow
 from app.models import CI, AuditEvent, CollisionStatus, GovernanceCollision, Relationship, SyncJob, SyncJobStatus
 from app.schemas import AuthMeResponse
@@ -136,3 +137,10 @@ def dashboard_activity(
         )
 
     return {"items": items}
+
+
+@router.get("/dashboard/alerts")
+def dashboard_alerts(
+    _token: str = Depends(require_service_auth),
+) -> dict[str, Any]:
+    return get_alert_snapshot()

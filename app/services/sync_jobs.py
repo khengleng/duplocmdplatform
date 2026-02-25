@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.core.telemetry import record_event
 from app.core.time import utcnow
 from app.models import SyncJob, SyncJobStatus, SyncState
 from app.services.audit import append_audit_event
@@ -267,6 +268,7 @@ def _complete_job_success(job_id: str, result: dict[str, Any]) -> None:
 
 
 def _complete_job_failure(job_id: str, error_message: str) -> None:
+    failed_terminally = False
     with SessionLocal() as db:
         job = db.get(SyncJob, job_id)
         if not job:
@@ -292,6 +294,7 @@ def _complete_job_failure(job_id: str, error_message: str) -> None:
         else:
             job.status = SyncJobStatus.FAILED
             job.completed_at = utcnow()
+            failed_terminally = True
             append_audit_event(
                 db,
                 event_type="integration.job.failed",
@@ -304,6 +307,8 @@ def _complete_job_failure(job_id: str, error_message: str) -> None:
                 },
             )
         db.commit()
+    if failed_terminally:
+        record_event("sync.job_failed")
 
 
 def _safe_job_error(exc: Exception) -> str:
