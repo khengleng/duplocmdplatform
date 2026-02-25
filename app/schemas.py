@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -174,6 +175,19 @@ class CIDriftResponse(BaseModel):
     cmdb: dict[str, Any]
     netbox: dict[str, Any]
     backstage: dict[str, Any]
+
+
+class CIDriftResolveRequest(BaseModel):
+    source: Literal["cmdb", "netbox", "backstage"] = "netbox"
+    fields: list[str] = Field(default_factory=lambda: ["name", "ci_type", "owner"])
+
+
+class CIDriftResolveResponse(BaseModel):
+    ci_id: str
+    source: str
+    applied: dict[str, dict[str, Any]]
+    ignored_fields: list[str]
+    drift: CIDriftResponse
 
 
 class AuthMeResponse(BaseModel):

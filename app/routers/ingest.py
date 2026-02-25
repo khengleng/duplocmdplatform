@@ -70,7 +70,40 @@ def _parse_ci_bulk_request(payload: dict[str, Any]) -> tuple[str, list[CIPayload
             raise HTTPException(status_code=422, detail="Each CI item must be an object")
 
         try:
-            if "ciClass" in raw or "canonicalName" in raw:
+            if isinstance(raw.get("metadata"), dict) and isinstance(raw.get("kind"), str):
+                metadata = raw["metadata"]
+                spec = raw.get("spec") if isinstance(raw.get("spec"), dict) else {}
+                annotations = metadata.get("annotations") if isinstance(metadata.get("annotations"), dict) else {}
+                entity_name = str(metadata.get("name") or "").strip()
+                entity_kind = str(raw.get("kind") or "").strip().lower()
+                entity_namespace = str(metadata.get("namespace") or "default").strip().lower()
+                entity_ref = f"{entity_kind}:{entity_namespace}/{entity_name.lower()}" if entity_kind and entity_name else ""
+
+                raw_identities = raw.get("identities")
+                identities = list(raw_identities) if isinstance(raw_identities, list) else []
+                if isinstance(annotations.get("unifiedcmdb.io/ci-id"), str) and annotations.get("unifiedcmdb.io/ci-id"):
+                    identities = [*identities, {"scheme": "cmdb_ci_id", "value": annotations["unifiedcmdb.io/ci-id"]}]
+                if entity_ref:
+                    identities = [*identities, {"scheme": "backstage_entity_ref", "value": entity_ref}]
+
+                attributes = {
+                    "environment": "unknown",
+                    "backstage_kind": entity_kind or None,
+                    "backstage_name": entity_name.lower() if entity_name else None,
+                    "backstage_namespace": entity_namespace,
+                    "backstage_entity_ref": entity_ref or None,
+                    "backstage_annotations": annotations or None,
+                }
+                attributes = {key: value for key, value in attributes.items() if value is not None}
+
+                ci = CIPayload(
+                    name=str(metadata.get("title") or metadata.get("name") or "backstage-entity"),
+                    ci_type=str(spec.get("type") or entity_kind or "component"),
+                    owner=spec.get("owner"),
+                    attributes=attributes,
+                    identities=identities,
+                )
+            elif "ciClass" in raw or "canonicalName" in raw:
                 attributes = dict(raw.get("attributes") or {})
                 if raw.get("environment") and "environment" not in attributes:
                     attributes["environment"] = raw["environment"]

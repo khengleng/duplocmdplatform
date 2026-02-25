@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.time import normalize_utc_naive, utcnow
 from app.models import CI, Identity, GovernanceCollision
-from app.schemas import CIPayload
+from app.schemas import CIPayload, IdentityPayload
 from app.services.audit import append_audit_event
 from app.services.jira import jira_client
 
@@ -24,6 +24,10 @@ def _incoming_has_precedence(existing_source: str, incoming_source: str) -> bool
 
 
 def _find_ci_by_identity(db: Session, scheme: str, value: str) -> CI | None:
+    if scheme == "cmdb_ci_id":
+        direct = db.get(CI, value)
+        if direct:
+            return direct
     stmt = (
         select(CI)
         .join(Identity, Identity.ci_id == CI.id)
@@ -83,6 +87,51 @@ def _create_collision(
     )
 
 
+def _append_identity_if_missing(payload: CIPayload, scheme: str, value: str) -> None:
+    normalized_value = str(value).strip()
+    if not normalized_value:
+        return
+    if any(identity.scheme == scheme and identity.value == normalized_value for identity in payload.identities):
+        return
+    payload.identities.append(IdentityPayload(scheme=scheme, value=normalized_value))
+
+
+def _augment_deterministic_identities(source: str, payload: CIPayload) -> None:
+    attributes = payload.attributes if isinstance(payload.attributes, dict) else {}
+
+    netbox_device_id = attributes.get("netbox_device_id")
+    if netbox_device_id is not None:
+        _append_identity_if_missing(payload, "netbox_device_id", str(netbox_device_id))
+
+    netbox_vm_id = attributes.get("netbox_vm_id")
+    if netbox_vm_id is not None:
+        _append_identity_if_missing(payload, "netbox_vm_id", str(netbox_vm_id))
+
+    backstage_annotations = attributes.get("backstage_annotations")
+    if isinstance(backstage_annotations, dict):
+        ci_id_from_annotation = backstage_annotations.get("unifiedcmdb.io/ci-id")
+        if ci_id_from_annotation:
+            _append_identity_if_missing(payload, "cmdb_ci_id", str(ci_id_from_annotation))
+
+    if source.lower().startswith("backstage"):
+        backstage_entity_ref = attributes.get("backstage_entity_ref")
+        if isinstance(backstage_entity_ref, str) and backstage_entity_ref.strip():
+            _append_identity_if_missing(payload, "backstage_entity_ref", backstage_entity_ref.strip().lower())
+
+        backstage_kind = str(attributes.get("backstage_kind") or "").strip().lower()
+        backstage_name = str(attributes.get("backstage_name") or "").strip().lower()
+        backstage_namespace = str(attributes.get("backstage_namespace") or "default").strip().lower()
+        if backstage_kind and backstage_name:
+            _append_identity_if_missing(payload, "backstage_entity_ref", f"{backstage_kind}:{backstage_namespace}/{backstage_name}")
+
+
+def _ensure_cmdb_identity(db: Session, ci: CI) -> None:
+    stmt = select(Identity).where(Identity.scheme == "cmdb_ci_id", Identity.value == ci.id).limit(1)
+    existing = db.scalar(stmt)
+    if existing is None:
+        db.add(Identity(ci_id=ci.id, scheme="cmdb_ci_id", value=ci.id))
+
+
 def _ensure_identities(db: Session, ci: CI, payload: CIPayload, source: str) -> int:
     collisions = 0
     for ident in payload.identities:
@@ -106,6 +155,7 @@ def _ensure_identities(db: Session, ci: CI, payload: CIPayload, source: str) -> 
 
 
 def reconcile_ci_payload(db: Session, source: str, payload: CIPayload) -> tuple[CI, bool, int]:
+    _augment_deterministic_identities(source, payload)
     now = normalize_utc_naive(payload.last_seen_at) or utcnow()
 
     matched_cis: list[CI] = []
@@ -125,6 +175,7 @@ def reconcile_ci_payload(db: Session, source: str, payload: CIPayload) -> tuple[
         )
         db.add(ci)
         db.flush()
+        _ensure_cmdb_identity(db, ci)
         collisions = _ensure_identities(db, ci, payload, source)
 
         append_audit_event(
@@ -171,6 +222,7 @@ def reconcile_ci_payload(db: Session, source: str, payload: CIPayload) -> tuple[
         )
 
     ci.last_seen_at = now
+    _ensure_cmdb_identity(db, ci)
     collisions += _ensure_identities(db, ci, payload, source)
 
     if not ci.owner:

@@ -228,12 +228,29 @@ select {
   color: var(--muted);
 }
 
+.actions label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  margin-top: 24px;
+  color: var(--ink);
+}
+
+.actions label.check input {
+  min-width: 0;
+  padding: 0;
+}
+
 .actions label input {
   min-width: 90px;
 }
 
 .actions label select {
   min-width: 280px;
+}
+
+.drift-resolve {
+  margin-top: 12px;
 }
 
 .split {

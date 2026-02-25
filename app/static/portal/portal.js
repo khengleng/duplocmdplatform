@@ -16,6 +16,11 @@ const relSourceSelect = document.getElementById("relSourceCiId");
 const relTargetSelect = document.getElementById("relTargetCiId");
 const relTypeInput = document.getElementById("relType");
 const createRelationshipBtn = document.getElementById("createRelationshipBtn");
+const driftSourceSelect = document.getElementById("driftSourceSelect");
+const driftFieldName = document.getElementById("driftFieldName");
+const driftFieldType = document.getElementById("driftFieldType");
+const driftFieldOwner = document.getElementById("driftFieldOwner");
+const resolveDriftBtn = document.getElementById("resolveDriftBtn");
 
 let selectedCiId = null;
 let currentScope = "viewer";
@@ -259,6 +264,14 @@ async function loadCiDrift(ciId) {
   document.getElementById("ciDrift").textContent = JSON.stringify(drift, null, 2);
 }
 
+function selectedDriftFields() {
+  const fields = [];
+  if (driftFieldName.checked) fields.push("name");
+  if (driftFieldType.checked) fields.push("ci_type");
+  if (driftFieldOwner.checked) fields.push("owner");
+  return fields;
+}
+
 async function refreshAll() {
   try {
     await loadAuthMe();
@@ -332,6 +345,28 @@ createRelationshipBtn.addEventListener("click", async () => {
     relation_type: relationType,
     source: "portal",
   });
+});
+
+resolveDriftBtn.addEventListener("click", async () => {
+  if (!selectedCiId) {
+    showFlash("Select a CI first.", true);
+    return;
+  }
+  const fields = selectedDriftFields();
+  if (!fields.length) {
+    showFlash("Select at least one field to resolve.", true);
+    return;
+  }
+
+  await runAction(
+    `/cis/${encodeURIComponent(selectedCiId)}/drift/resolve`,
+    "Drift resolution applied",
+    "POST",
+    {
+      source: driftSourceSelect.value,
+      fields,
+    },
+  );
 });
 
 tokenInput.value = "";

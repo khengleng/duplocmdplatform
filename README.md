@@ -22,6 +22,10 @@ This repository provides a thin CMDB Core service and source connectors for:
 2. Reconciliation Engine
 - Source-based attribute precedence (`SOURCE_PRECEDENCE`)
 - Collision workflow creates governance events and Jira issue stubs
+- Deterministic identity linking rules:
+  - `netbox_device_id` / `netbox_vm_id` enrichment from payload attributes
+  - Backstage annotation mapping (`unifiedcmdb.io/ci-id` -> `cmdb_ci_id`)
+  - Backstage entity reference mapping (`kind:namespace/name` -> `backstage_entity_ref`)
 
 3. Lifecycle Engine
 - `30` days inactive -> `STAGING`
@@ -46,6 +50,7 @@ This repository provides a thin CMDB Core service and source connectors for:
 - `GET /cis/{id}/detail`
 - `GET /cis/{id}/identities`
 - `GET /cis/{id}/drift`
+- `POST /cis/{id}/drift/resolve`
 - `GET /cis/{id}/graph`
 - `GET /cis/{id}/audit`
 - `GET /pickers/cis`

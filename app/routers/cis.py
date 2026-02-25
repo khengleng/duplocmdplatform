@@ -1,13 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import require_service_auth
+from app.core.security import require_mutation_rate_limit, require_service_auth
 from app.models import CI, AuditEvent, Identity, Relationship
 from app.schemas import (
     AuditEventResponse,
     CIDetailResponse,
+    CIDriftResolveRequest,
+    CIDriftResolveResponse,
     CIDriftResponse,
     CIGraphResponse,
     CIResponse,
@@ -16,9 +18,11 @@ from app.schemas import (
     PickerCIResponse,
     RelationshipResponse,
 )
+from app.services.audit import append_audit_event
 from app.services.drift import compute_ci_drift
 
 router = APIRouter(tags=["cis"], dependencies=[Depends(require_service_auth)])
+RESOLVABLE_CI_FIELDS = {"name", "ci_type", "owner"}
 
 
 def _to_ci_response(ci: CI) -> CIResponse:
@@ -204,6 +208,93 @@ def get_ci_drift(ci_id: str, db: Session = Depends(get_db)) -> CIDriftResponse:
         raise HTTPException(status_code=404, detail="CI not found")
     drift = compute_ci_drift(db, ci)
     return CIDriftResponse(**drift)
+
+
+@router.post(
+    "/cis/{ci_id}/drift/resolve",
+    response_model=CIDriftResolveResponse,
+    dependencies=[Depends(require_mutation_rate_limit)],
+)
+def resolve_ci_drift(
+    ci_id: str,
+    request_body: CIDriftResolveRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> CIDriftResolveResponse:
+    ci = db.get(CI, ci_id)
+    if not ci:
+        raise HTTPException(status_code=404, detail="CI not found")
+
+    requested_fields = [field for field in request_body.fields if field]
+    if not requested_fields:
+        raise HTTPException(status_code=400, detail="At least one field must be selected for drift resolution")
+
+    principal = getattr(request.state, "service_principal", "service:unknown")
+    drift_snapshot = compute_ci_drift(db, ci)
+
+    ignored_fields: list[str] = []
+    applied: dict[str, dict[str, str | None]] = {}
+    selected_source = request_body.source
+
+    if selected_source == "cmdb":
+        ignored_fields = requested_fields
+    else:
+        source_state = drift_snapshot.get(selected_source)
+        if not isinstance(source_state, dict):
+            raise HTTPException(status_code=400, detail="Drift source payload is unavailable")
+        source_status = source_state.get("status")
+        if source_status in {"unavailable", "error", "missing", "not_applicable"}:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot resolve from {selected_source} because source status is {source_status}",
+            )
+
+        source_target = source_state.get("target")
+        if not isinstance(source_target, dict):
+            raise HTTPException(status_code=400, detail=f"{selected_source} drift target is unavailable")
+
+        for field in requested_fields:
+            if field not in RESOLVABLE_CI_FIELDS:
+                ignored_fields.append(field)
+                continue
+
+            incoming_value = source_target.get(field)
+            if incoming_value is None:
+                ignored_fields.append(field)
+                continue
+
+            existing_value = getattr(ci, field)
+            coerced_incoming = str(incoming_value)
+            if existing_value != coerced_incoming:
+                setattr(ci, field, coerced_incoming)
+                applied[field] = {"before": existing_value, "after": coerced_incoming}
+
+        if applied:
+            ci.source = selected_source
+
+    append_audit_event(
+        db,
+        event_type="ci.drift.resolved",
+        payload={
+            "ci_id": ci.id,
+            "source": selected_source,
+            "requested_fields": requested_fields,
+            "applied": applied,
+            "ignored_fields": ignored_fields,
+            "requested_by": principal,
+        },
+        ci_id=ci.id,
+    )
+    db.commit()
+
+    refreshed_drift = compute_ci_drift(db, ci)
+    return CIDriftResolveResponse(
+        ci_id=ci.id,
+        source=selected_source,
+        applied=applied,
+        ignored_fields=ignored_fields,
+        drift=CIDriftResponse(**refreshed_drift),
+    )
 
 
 @router.get("/pickers/cis", response_model=list[PickerCIResponse])

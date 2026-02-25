@@ -95,6 +95,29 @@
           <div>
             <h3>Drift (CMDB vs NetBox vs Backstage)</h3>
             <pre id="ciDrift">-</pre>
+            <div class="actions drift-resolve">
+              <label>
+                Resolve From
+                <select id="driftSourceSelect">
+                  <option value="netbox">NetBox</option>
+                  <option value="backstage">Backstage</option>
+                  <option value="cmdb">CMDB (Keep Current)</option>
+                </select>
+              </label>
+              <label class="check">
+                <input id="driftFieldName" type="checkbox" checked />
+                Name
+              </label>
+              <label class="check">
+                <input id="driftFieldType" type="checkbox" checked />
+                CI Type
+              </label>
+              <label class="check">
+                <input id="driftFieldOwner" type="checkbox" checked />
+                Owner
+              </label>
+              <button id="resolveDriftBtn" class="btn operator-action">Resolve Drift</button>
+            </div>
           </div>
         </div>
       </section>
