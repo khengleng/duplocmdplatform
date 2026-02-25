@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     request_timeout_seconds: int = 30
     global_rate_limit_per_minute: int = 600
     mutating_rate_limit_per_minute: int = 120
+    maker_checker_enabled: bool = False
+    maker_checker_default_ttl_minutes: int = 30
+    maker_checker_bind_requester: bool = True
     sync_job_max_attempts: int = 3
     sync_job_retry_base_seconds: int = 5
     sync_worker_poll_seconds: int = 2
@@ -45,9 +48,18 @@ class Settings(BaseSettings):
     jira_token: str = ""
 
     unified_cmdb_name: str = "unifiedCMDB"
+    service_auth_mode: str = "static"
     service_auth_tokens: str = ""
     service_viewer_tokens: str = ""
     service_operator_tokens: str = ""
+    service_approver_tokens: str = ""
+    oidc_issuer: str = ""
+    oidc_audience: str = ""
+    oidc_jwks_url: str = ""
+    oidc_algorithms: str = "RS256"
+    oidc_scope_viewer: str = "cmdb.viewer"
+    oidc_scope_operator: str = "cmdb.operator"
+    oidc_scope_approver: str = "cmdb.approver"
     netbox_sync_enabled: bool = False
     netbox_sync_url: str = ""
     netbox_sync_token: str = ""
@@ -66,6 +78,15 @@ class Settings(BaseSettings):
         if isinstance(value, list):
             return value
         return [item.strip() for item in value.split(",") if item.strip()]
+
+    @field_validator("service_auth_mode")
+    @classmethod
+    def validate_service_auth_mode(cls, value: str) -> str:
+        mode = (value or "static").strip().lower()
+        allowed = {"static", "hybrid", "oidc"}
+        if mode not in allowed:
+            raise ValueError(f"service_auth_mode must be one of {sorted(allowed)}")
+        return mode
 
 
 

@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.models import CIStatus, CollisionStatus, SyncJobStatus
+from app.models import ApprovalStatus, CIStatus, CollisionStatus, SyncJobStatus
 
 
 class IdentityPayload(BaseModel):
@@ -192,6 +192,37 @@ class CIDriftResolveResponse(BaseModel):
     applied: dict[str, dict[str, Any]]
     ignored_fields: list[str]
     drift: CIDriftResponse
+
+
+class ApprovalCreateRequest(BaseModel):
+    method: Literal["POST", "PUT", "PATCH", "DELETE"]
+    path: str
+    query: str | None = None
+    payload: Any | None = None
+    reason: str | None = None
+    ttl_minutes: int = Field(default=30, ge=1, le=1440)
+
+
+class ApprovalDecisionRequest(BaseModel):
+    note: str | None = None
+
+
+class ApprovalResponse(BaseModel):
+    id: str
+    method: str
+    request_path: str
+    payload_hash: str
+    payload_preview: dict[str, Any]
+    reason: str | None
+    requested_by: str
+    status: ApprovalStatus
+    decided_by: str | None
+    decision_note: str | None
+    created_at: datetime
+    expires_at: datetime
+    decided_at: datetime | None
+    consumed_at: datetime | None
+    updated_at: datetime
 
 
 class AuthMeResponse(BaseModel):

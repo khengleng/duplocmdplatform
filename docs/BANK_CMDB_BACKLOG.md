@@ -99,8 +99,14 @@ Stories:
 - P2-S05: Event bus ingestion with idempotency keys and replay.
 - P2-S06: Dead-letter queues and retry observability.
 
-## Current Sprint (Started)
-- IN PROGRESS: P0-S05 global API request rate limiting.
-- IN PROGRESS: P0-S08 request timeout enforcement.
-- IN PROGRESS: P0-S09 and P0-S10 standardized sanitized error responses.
+## Current Sprint (Status)
+- DONE: P0-S05 global API request rate limiting.
+- DONE: P0-S08 request timeout enforcement.
+- DONE: P0-S09 and P0-S10 standardized sanitized error responses.
+- DONE: P0-S01/S03 baseline scope model extended with `approver` role and approval-gated mutating flow.
+- DONE: P0-S02 initial OIDC/JWKS service auth support (`static`/`hybrid`/`oidc` modes).
 
+Next:
+- P0-S04 maker-checker UX in portal (request + approve/reject flows in UI).
+- P0-S12 alerting hooks for repeated `5xx`, `429`, and sync failures.
+- P0-S13 Postgres production migration plan and restore drill automation.

@@ -56,6 +56,10 @@ This repository provides a thin CMDB Core service and source connectors for:
 - `GET /pickers/cis`
 - `POST /governance/collisions/{id}/resolve`
 - `POST /governance/collisions/{id}/reopen`
+- `GET /approvals`
+- `POST /approvals`
+- `POST /approvals/{id}/approve`
+- `POST /approvals/{id}/reject`
 - `GET /relationships`
 - `POST /relationships`
 - `PATCH /relationships/{id}`
@@ -86,6 +90,7 @@ Additional utility endpoints:
 
 All endpoints except `/health` require service authentication:
 - `Authorization: Bearer <service-token>`
+- Authentication mode can be configured as `static`, `hybrid`, or `oidc`
 - Mutating endpoints are rate-limited per token and route
 - Global request rate limiting is enforced per token/IP and route
 - Request bodies and bulk item counts are bounded
@@ -102,8 +107,16 @@ Portal notes:
 Token scopes:
 - `SERVICE_VIEWER_TOKENS`: read-only tokens
 - `SERVICE_OPERATOR_TOKENS`: full control tokens
+- `SERVICE_APPROVER_TOKENS`: approval decision tokens
 - `SERVICE_AUTH_TOKENS`: legacy full control tokens (treated as operator)
 - Mutating endpoints require `operator` scope.
+- Approval decisions require `approver` scope.
+- Optional maker-checker is available for mutating endpoints via `x-cmdb-approval-id`.
+
+Maker-checker flow:
+1. Operator creates a pending approval with `POST /approvals`.
+2. Approver approves or rejects it with `POST /approvals/{id}/approve` or `/reject`.
+3. Operator executes the mutating request with header `x-cmdb-approval-id: <id>`.
 
 ## Local Development
 
@@ -153,9 +166,18 @@ If disabled, issue creation is logged and skipped.
 Use these environment variables to activate outbound sync webhooks:
 
 - `UNIFIED_CMDB_NAME=unifiedCMDB`
+- `SERVICE_AUTH_MODE=static` (`static` | `hybrid` | `oidc`)
 - `SERVICE_AUTH_TOKENS=<legacy comma-separated full-control tokens>`
 - `SERVICE_OPERATOR_TOKENS=<comma-separated operator tokens>`
+- `SERVICE_APPROVER_TOKENS=<comma-separated approver tokens>`
 - `SERVICE_VIEWER_TOKENS=<comma-separated viewer tokens>`
+- `OIDC_ISSUER=<expected issuer>`
+- `OIDC_AUDIENCE=<expected audience>`
+- `OIDC_JWKS_URL=<jwks endpoint>`
+- `OIDC_ALGORITHMS=RS256`
+- `OIDC_SCOPE_VIEWER=cmdb.viewer`
+- `OIDC_SCOPE_OPERATOR=cmdb.operator`
+- `OIDC_SCOPE_APPROVER=cmdb.approver`
 - `API_DOCS_ENABLED=false` (recommended in production)
 - `API_DOCS_REQUIRE_AUTH=true` (required if docs are enabled in production)
 - `MAX_REQUEST_BODY_BYTES=1048576`
@@ -163,6 +185,9 @@ Use these environment variables to activate outbound sync webhooks:
 - `REQUEST_TIMEOUT_SECONDS=30`
 - `GLOBAL_RATE_LIMIT_PER_MINUTE=600`
 - `MUTATING_RATE_LIMIT_PER_MINUTE=120`
+- `MAKER_CHECKER_ENABLED=false`
+- `MAKER_CHECKER_DEFAULT_TTL_MINUTES=30`
+- `MAKER_CHECKER_BIND_REQUESTER=true`
 - `SYNC_JOB_MAX_ATTEMPTS=3`
 - `SYNC_JOB_RETRY_BASE_SECONDS=5`
 - `SYNC_WORKER_POLL_SECONDS=2`

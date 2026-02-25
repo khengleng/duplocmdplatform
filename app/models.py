@@ -27,6 +27,13 @@ class SyncJobStatus(str, enum.Enum):
     FAILED = "FAILED"
 
 
+class ApprovalStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    CONSUMED = "CONSUMED"
+
+
 class CI(Base):
     __tablename__ = "cis"
 
@@ -131,8 +138,32 @@ class SyncJob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (Index("ix_sync_jobs_status_next_run", "status", "next_run_at"),)
+
+
+class ChangeApproval(Base):
+    __tablename__ = "change_approvals"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    method: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
+    request_path: Mapped[str] = mapped_column(String(1024), nullable=False, index=True)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload_preview: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_by: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    status: Mapped[ApprovalStatus] = mapped_column(
+        Enum(ApprovalStatus),
+        nullable=False,
+        default=ApprovalStatus.PENDING,
+        index=True,
+    )
+    decided_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
     )
-
-    __table_args__ = (Index("ix_sync_jobs_status_next_run", "status", "next_run_at"),)
