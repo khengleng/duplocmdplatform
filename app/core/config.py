@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     api_docs_require_auth: bool = True
     max_request_body_bytes: int = 1048576
     max_bulk_items: int = 500
+    request_timeout_seconds: int = 30
+    global_rate_limit_per_minute: int = 600
     mutating_rate_limit_per_minute: int = 120
     sync_job_max_attempts: int = 3
     sync_job_retry_base_seconds: int = 5

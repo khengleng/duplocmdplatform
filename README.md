@@ -87,10 +87,13 @@ Additional utility endpoints:
 All endpoints except `/health` require service authentication:
 - `Authorization: Bearer <service-token>`
 - Mutating endpoints are rate-limited per token and route
+- Global request rate limiting is enforced per token/IP and route
 - Request bodies and bulk item counts are bounded
+- Request processing timeout is enforced with a deterministic timeout response
 - API docs are disabled by default (can be explicitly enabled and auth-protected)
 - NetBox import supports incremental watermark-based pulls
 - Integration sync can run synchronous or as background async jobs (`asyncJob=true`)
+- Error responses are normalized and include request correlation IDs
 
 Portal notes:
 - `/portal` is publicly reachable but does not expose CMDB data by itself.
@@ -157,6 +160,8 @@ Use these environment variables to activate outbound sync webhooks:
 - `API_DOCS_REQUIRE_AUTH=true` (required if docs are enabled in production)
 - `MAX_REQUEST_BODY_BYTES=1048576`
 - `MAX_BULK_ITEMS=500`
+- `REQUEST_TIMEOUT_SECONDS=30`
+- `GLOBAL_RATE_LIMIT_PER_MINUTE=600`
 - `MUTATING_RATE_LIMIT_PER_MINUTE=120`
 - `SYNC_JOB_MAX_ATTEMPTS=3`
 - `SYNC_JOB_RETRY_BASE_SECONDS=5`

@@ -38,6 +38,7 @@ def configure_logging() -> None:
 
 async def correlation_middleware(request: Request, call_next: Callable) -> Response:
     correlation_id = request.headers.get("x-correlation-id", str(uuid.uuid4()))
+    request.state.correlation_id = correlation_id
     token = correlation_id_ctx.set(correlation_id)
     try:
         response = await call_next(request)

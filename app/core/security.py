@@ -33,6 +33,7 @@ class SlidingWindowLimiter:
 
 
 _rate_limiter: SlidingWindowLimiter | None = None
+_global_rate_limiter: SlidingWindowLimiter | None = None
 
 
 def _get_rate_limiter() -> SlidingWindowLimiter:
@@ -45,6 +46,38 @@ def _get_rate_limiter() -> SlidingWindowLimiter:
             window_seconds=60,
         )
     return _rate_limiter
+
+
+def _get_global_rate_limiter() -> SlidingWindowLimiter:
+    global _global_rate_limiter
+    settings = get_settings()
+    max_requests = max(1, settings.global_rate_limit_per_minute)
+    if _global_rate_limiter is None or _global_rate_limiter.max_requests != max_requests:
+        _global_rate_limiter = SlidingWindowLimiter(
+            max_requests=max_requests,
+            window_seconds=60,
+        )
+    return _global_rate_limiter
+
+
+def global_rate_limit_key(request: Request) -> str:
+    auth_header = request.headers.get("authorization", "")
+    token_fingerprint = ""
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+        if token:
+            token_fingerprint = hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
+
+    if token_fingerprint:
+        return f"token:{token_fingerprint}:{request.url.path}"
+
+    client_host = request.client.host if request.client else "unknown"
+    return f"ip:{client_host}:{request.url.path}"
+
+
+def enforce_global_rate_limit(request: Request) -> bool:
+    limiter = _get_global_rate_limiter()
+    return limiter.allow(global_rate_limit_key(request))
 
 
 def require_service_auth(
