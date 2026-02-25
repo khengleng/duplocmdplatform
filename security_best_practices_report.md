@@ -1,86 +1,81 @@
 # Security Best Practices Report
 
 ## Executive Summary
-The current integration topology is functionally working, but **not secure by default**. The most serious gap is that `cmdb-core` exposes state-changing and integration-triggering endpoints without authentication, which allows unauthenticated internet callers to write CMDB data and drive privileged sync actions into Backstage/NetBox. There are also availability and observability gaps that can be abused for denial-of-service and can hide sync failures.
+Mutating endpoints are now significantly hardened (service auth, route-level rate limiting, bulk caps, and safer error responses). I did not find hardcoded credentials, embedded shell execution payloads, or obvious code-injection backdoors. Remaining risks are mainly around data exposure and availability hardening.
 
 ## Findings
 
-### [F-001] Critical - Unauthenticated state-changing CMDB and integration endpoints
+### [F-001] High - Unauthenticated read endpoints expose full CMDB and audit data
 - Location:
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/main.py:28](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/main.py:28)
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/ingest.py:132](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/ingest.py:132)
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/ingest.py:195](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/ingest.py:195)
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/integrations.py:121](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/integrations.py:121)
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/integrations.py:162](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/integrations.py:162)
+  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/cis.py:52](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/cis.py:52)
+  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/cis.py:113](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/cis.py:113)
+  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/audit.py:13](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/audit.py:13)
+  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/integrations.py:47](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/integrations.py:47)
+  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/integrations.py:87](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/integrations.py:87)
 - Evidence:
-  - Routers are included globally with no auth dependency/middleware gate.
-  - Mutating endpoints (`/ingest/*`, `/integrations/netbox/import`, `/integrations/backstage/sync`) have no caller authentication.
-- Impact (critical): Any external caller can modify CMDB state and trigger downstream privileged actions.
-- Fix:
-  - Add mandatory service authentication (HMAC/JWT/API key with rotation) at router level for all write/sync endpoints.
-  - Enforce least-privilege authorization per operation (ingest vs sync vs export).
-  - Keep `/health` public, make others authenticated by default.
+  - These routes are public and return CI inventory, relationships, and audit payloads.
+  - No `Depends(require_service_auth)` on these read endpoints.
+- Impact:
+  - Any unauthenticated caller can enumerate topology, ownership, and operational metadata.
+- Recommendation:
+  - Require auth on read APIs too, or enforce strict network ACLs.
+  - Consider separate read scopes from write scopes.
 
-### [F-002] Critical - Confused deputy: unauthenticated callers can trigger privileged outbound API calls
+### [F-002] High - Request-size middleware still buffers full body in memory
 - Location:
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/integrations.py:121](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/integrations.py:121)
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/integrations.py:162](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/integrations.py:162)
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/integrations.py:35](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/integrations.py:35)
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/integrations.py:220](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/integrations.py:220)
+  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/main.py:21](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/main.py:21)
+  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/main.py:33](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/main.py:33)
 - Evidence:
-  - Integration service attaches privileged `Authorization` headers from environment secrets when making outbound calls.
-  - Trigger endpoints are unauthenticated.
-- Impact (critical): Internet callers can force your service to act with trusted credentials against Backstage/NetBox.
-- Fix:
-  - Same auth controls as F-001 plus allowlist source IP/network for sync endpoints.
-  - Add operation quotas and per-caller rate limits.
+  - `await request.body()` reads the full payload before rejecting by size.
+  - Attackers can omit or spoof `Content-Length` and still force large in-memory reads.
+- Impact:
+  - Memory-exhaustion DoS remains possible at app layer.
+- Recommendation:
+  - Enforce hard body limits at edge proxy/load balancer first.
+  - For app-level handling, reject mutating requests with missing/invalid `Content-Length` instead of full buffering.
 
-### [F-003] High - DoS/flooding risk from unbounded ingest fan-out and synchronous outbound calls
+### [F-003] Medium - Production API docs are exposed by default
 - Location:
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/ingest.py:134](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/ingest.py:134)
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/ingest.py:166](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/ingest.py:166)
+  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/main.py:16](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/main.py:16)
+  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/README.md:87](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/README.md:87)
+- Evidence:
+  - FastAPI is initialized without disabling `docs_url` / `redoc_url` / `openapi_url`.
+- Impact:
+  - Endpoint and schema discovery is easier for attackers.
+- Recommendation:
+  - Disable or protect docs in production (`docs_url=None`, `redoc_url=None`, `openapi_url=None`), controlled by env.
+
+### [F-004] Medium - Outbound sync and NetBox pull URLs are not restricted to HTTPS
+- Location:
   - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/integrations.py:44](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/integrations.py:44)
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/schemas.py:14](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/schemas.py:14)
+  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/integrations.py:267](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/integrations.py:267)
 - Evidence:
-  - No hard request-body size guard in FastAPI app or router.
-  - No max item count in `cis/items` list.
-  - For non-dry-run, each ingested item can trigger outbound sync calls synchronously with 20s timeouts.
-- Impact: Attackers can force expensive CPU/DB work and downstream API floods, degrading availability.
-- Fix:
-  - Add strict `max_items` and field size constraints (Pydantic `max_length`, list bounds).
-  - Add ingress body size limits at gateway and app-level validation.
-  - Move outbound sync to async queue with worker concurrency + backpressure.
+  - Outbound requests accept environment-provided URLs without scheme enforcement.
+- Impact:
+  - Misconfiguration to `http://` can leak bearer tokens and payloads in transit.
+- Recommendation:
+  - Validate configured integration URLs and require `https://` in non-dev environments.
 
-### [F-004] Medium - Internal error detail leakage to clients
+### [F-005] Medium - Jira failures can break ingest/lifecycle operations when enabled
 - Location:
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/ingest.py:164](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/ingest.py:164)
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/integrations.py:132](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/routers/integrations.py:132)
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/integrations.py:49](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/integrations.py:49)
+  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/jira.py:34](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/jira.py:34)
+  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/reconciliation.py:74](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/reconciliation.py:74)
+  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/lifecycle.py:46](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/lifecycle.py:46)
 - Evidence:
-  - API responses include raw exception text (`exc.orig`, `str(exc)`), which can expose schema/internal dependency details.
-- Impact: Increases attacker reconnaissance capability.
-- Fix:
-  - Return generic client-safe messages and error codes.
-  - Keep detailed exception context only in structured logs.
+  - `JiraClient.create_issue` raises on HTTP errors and callers do not isolate failures.
+- Impact:
+  - External Jira outage can degrade or fail core CMDB processing paths.
+- Recommendation:
+  - Catch Jira errors in caller paths, log them, and continue core transaction.
+  - Consider async fire-and-forget queueing for ticket creation.
 
-### [F-005] Medium - Backstage CMDB read endpoints rely on external/global auth behavior (no explicit route-level auth checks)
-- Location:
-  - [/Users/mlh/duplo/duplo/backstage/plugins/cmdb-backend/src/service/router.ts:121](/Users/mlh/duplo/duplo/backstage/plugins/cmdb-backend/src/service/router.ts:121)
-  - [/Users/mlh/duplo/duplo/backstage/plugins/cmdb-backend/src/service/router.ts:138](/Users/mlh/duplo/duplo/backstage/plugins/cmdb-backend/src/service/router.ts:138)
-- Evidence:
-  - `GET /cis` and `GET /cis/:id` do not invoke route-level `getWriteCredentials`/role checks.
-- Impact: If platform-level auth policy changes, these routes may become unintentionally exposed.
-- Fix:
-  - Add explicit read-access policy checks (service/user role gating) or document/enforce this dependency with tests.
-
-## Stability Notes
-- Attribute serialization write-path in Backstage CMDB was patched to safely persist primitive JSON values:
-  - [/Users/mlh/duplo/duplo/backstage/plugins/cmdb-backend/src/database/CmdbStore.ts:1041](/Users/mlh/duplo/duplo/backstage/plugins/cmdb-backend/src/database/CmdbStore.ts:1041)
-- `cmdb-core` outbound payload now includes `attributes` again:
-  - [/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/integrations.py:129](/Users/mlh/NetBox-Duplo-CMDB/duplocmdplatform/app/services/integrations.py:129)
+## Hardcoded Secret Review
+- No hardcoded API keys/private keys/tokens found in repository source files or `.env.example`.
+- No `eval`, `exec`, `os.system`, or unsafe `pickle/yaml.load` patterns found in application code.
 
 ## Recommended Remediation Order
-1. Implement mandatory authN/authZ for all mutating/sync endpoints (F-001/F-002).
-2. Add rate limits, request caps, and async queueing for outbound sync fan-out (F-003).
-3. Remove raw exception leakage from HTTP responses (F-004).
-4. Add explicit read-access checks in Backstage router for defense in depth (F-005).
+1. Protect read endpoints with auth and/or network controls (F-001).
+2. Move body-size enforcement to edge and hard-fail missing `Content-Length` for mutating routes (F-002).
+3. Disable or protect OpenAPI docs in production (F-003).
+4. Enforce HTTPS-only outbound integration URLs in production (F-004).
+5. Make Jira integration non-blocking for core ingest/lifecycle paths (F-005).
