@@ -11,7 +11,7 @@ from app.core.config import get_settings
 from app.core.database import Base, engine
 from app.core.logging import configure_logging, correlation_middleware
 from app.core.security import require_service_auth
-from app.routers import audit, cis, dashboard, governance, ingest, integrations, lifecycle
+from app.routers import audit, cis, dashboard, governance, ingest, integrations, lifecycle, relationships
 from app.schemas import HealthResponse
 from app.services.sync_jobs import start_sync_worker, stop_sync_worker
 
@@ -106,3 +106,4 @@ app.include_router(lifecycle.router)
 app.include_router(audit.router)
 app.include_router(integrations.router)
 app.include_router(dashboard.router)
+app.include_router(relationships.router)

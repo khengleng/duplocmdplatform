@@ -11,6 +11,12 @@ class IdentityPayload(BaseModel):
     value: str
 
 
+class IdentityResponse(BaseModel):
+    scheme: str
+    value: str
+    created_at: datetime
+
+
 class CIPayload(BaseModel):
     name: str
     ci_type: str
@@ -88,6 +94,23 @@ class RelationshipResponse(BaseModel):
     source: str
 
 
+class RelationshipRecordResponse(RelationshipResponse):
+    id: int
+    created_at: datetime
+
+
+class RelationshipCreateRequest(BaseModel):
+    source_ci_id: str
+    target_ci_id: str
+    relation_type: str
+    source: str = "manual"
+
+
+class RelationshipUpdateRequest(BaseModel):
+    relation_type: str | None = None
+    source: str | None = None
+
+
 class CIGraphResponse(BaseModel):
     ci: CIResponse
     upstream: list[RelationshipResponse]
@@ -135,6 +158,27 @@ class LifecycleRunResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str = "ok"
+
+
+class CIDetailResponse(BaseModel):
+    ci: CIResponse
+    identities: list[IdentityResponse]
+    upstream: list[RelationshipResponse]
+    downstream: list[RelationshipResponse]
+    recent_audit: list[AuditEventResponse]
+
+
+class CIDriftResponse(BaseModel):
+    ci_id: str
+    overall_status: str
+    cmdb: dict[str, Any]
+    netbox: dict[str, Any]
+    backstage: dict[str, Any]
+
+
+class AuthMeResponse(BaseModel):
+    principal: str
+    scope: str
 
 
 class IntegrationJobCreateResponse(BaseModel):

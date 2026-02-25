@@ -43,10 +43,17 @@ This repository provides a thin CMDB Core service and source connectors for:
 - `POST /ingest/relationships:bulk`
 - `GET /cis`
 - `GET /cis/{id}`
+- `GET /cis/{id}/detail`
+- `GET /cis/{id}/identities`
+- `GET /cis/{id}/drift`
 - `GET /cis/{id}/graph`
 - `GET /cis/{id}/audit`
 - `GET /pickers/cis`
 - `POST /governance/collisions/{id}/resolve`
+- `GET /relationships`
+- `POST /relationships`
+- `PATCH /relationships/{id}`
+- `DELETE /relationships/{id}`
 
 Backstage compatibility (verified against local Backstage source):
 - `POST /ingest/cis:bulk` accepts `{ sourceSystem, items }` and `{ source, cis }`
@@ -82,6 +89,12 @@ All endpoints except `/health` require service authentication:
 Portal notes:
 - `/portal` is publicly reachable but does not expose CMDB data by itself.
 - The portal UI requires a valid service token to call secured APIs.
+
+Token scopes:
+- `SERVICE_VIEWER_TOKENS`: read-only tokens
+- `SERVICE_OPERATOR_TOKENS`: full control tokens
+- `SERVICE_AUTH_TOKENS`: legacy full control tokens (treated as operator)
+- Mutating endpoints require `operator` scope.
 
 ## Local Development
 
@@ -131,7 +144,9 @@ If disabled, issue creation is logged and skipped.
 Use these environment variables to activate outbound sync webhooks:
 
 - `UNIFIED_CMDB_NAME=unifiedCMDB`
-- `SERVICE_AUTH_TOKENS=<comma-separated bearer tokens allowed to call mutating/sync endpoints>`
+- `SERVICE_AUTH_TOKENS=<legacy comma-separated full-control tokens>`
+- `SERVICE_OPERATOR_TOKENS=<comma-separated operator tokens>`
+- `SERVICE_VIEWER_TOKENS=<comma-separated viewer tokens>`
 - `API_DOCS_ENABLED=false` (recommended in production)
 - `API_DOCS_REQUIRE_AUTH=true` (required if docs are enabled in production)
 - `MAX_REQUEST_BODY_BYTES=1048576`
@@ -154,6 +169,8 @@ Use these environment variables to activate outbound sync webhooks:
 - `BACKSTAGE_SYNC_URL=https://<backstage-base>/api/cmdb`
 - `BACKSTAGE_SYNC_TOKEN=<token>`
 - `BACKSTAGE_SYNC_SECRET=<legacy-externalAccess secret (base64/base64url)>` (optional alternative to token)
+- `BACKSTAGE_CATALOG_URL=https://<backstage-base>/api/catalog`
+- `BACKSTAGE_CATALOG_TOKEN=<token>` (optional, used for drift checks)
 
 NetBox pull import configuration:
 

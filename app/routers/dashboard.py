@@ -2,7 +2,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.core.security import require_service_auth
 from app.core.time import utcnow
 from app.models import CI, AuditEvent, CollisionStatus, GovernanceCollision, Relationship, SyncJob, SyncJobStatus
+from app.schemas import AuthMeResponse
 from app.services.integrations import get_netbox_watermarks
 from app.services.sync_jobs import list_sync_schedules
 
@@ -21,6 +22,16 @@ PORTAL_INDEX = Path(__file__).resolve().parents[1] / "static" / "portal" / "inde
 @router.get("/portal")
 def portal() -> FileResponse:
     return FileResponse(PORTAL_INDEX)
+
+
+@router.get("/dashboard/me", response_model=AuthMeResponse)
+def dashboard_me(
+    request: Request,
+    _token: str = Depends(require_service_auth),
+) -> AuthMeResponse:
+    principal = getattr(request.state, "service_principal", "service:unknown")
+    scope = getattr(request.state, "service_scope", "viewer")
+    return AuthMeResponse(principal=principal, scope=scope)
 
 
 @router.get("/dashboard/summary")

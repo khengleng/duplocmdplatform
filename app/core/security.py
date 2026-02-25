@@ -52,9 +52,13 @@ def require_service_auth(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> str:
     settings = get_settings()
-    allowed_tokens = [token.strip() for token in settings.service_auth_tokens.split(",") if token.strip()]
+    legacy_operator_tokens = [token.strip() for token in settings.service_auth_tokens.split(",") if token.strip()]
+    explicit_operator_tokens = [token.strip() for token in settings.service_operator_tokens.split(",") if token.strip()]
+    viewer_tokens = [token.strip() for token in settings.service_viewer_tokens.split(",") if token.strip()]
 
-    if not allowed_tokens:
+    operator_tokens = legacy_operator_tokens + explicit_operator_tokens
+
+    if not operator_tokens and not viewer_tokens:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Service authentication is not configured",
@@ -75,10 +79,18 @@ def require_service_auth(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    for expected in allowed_tokens:
+    for expected in operator_tokens:
         if secrets.compare_digest(token, expected):
             principal_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
             request.state.service_principal = f"service:{principal_hash}"
+            request.state.service_scope = "operator"
+            return token
+
+    for expected in viewer_tokens:
+        if secrets.compare_digest(token, expected):
+            principal_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
+            request.state.service_principal = f"service:{principal_hash}"
+            request.state.service_scope = "viewer"
             return token
 
     raise HTTPException(
@@ -87,7 +99,17 @@ def require_service_auth(
     )
 
 
+def require_operator_scope(request: Request) -> None:
+    scope = getattr(request.state, "service_scope", None)
+    if scope != "operator":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operator scope required",
+        )
+
+
 def require_mutation_rate_limit(request: Request) -> None:
+    require_operator_scope(request)
     limiter = _get_rate_limiter()
     principal = getattr(request.state, "service_principal", "service:unknown")
     route_key = request.url.path

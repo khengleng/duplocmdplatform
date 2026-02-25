@@ -44,6 +44,8 @@ class Settings(BaseSettings):
 
     unified_cmdb_name: str = "unifiedCMDB"
     service_auth_tokens: str = ""
+    service_viewer_tokens: str = ""
+    service_operator_tokens: str = ""
     netbox_sync_enabled: bool = False
     netbox_sync_url: str = ""
     netbox_sync_token: str = ""
@@ -53,6 +55,8 @@ class Settings(BaseSettings):
     backstage_sync_url: str = ""
     backstage_sync_token: str = ""
     backstage_sync_secret: str = ""
+    backstage_catalog_url: str = ""
+    backstage_catalog_token: str = ""
 
     @field_validator("source_precedence", mode="before")
     @classmethod

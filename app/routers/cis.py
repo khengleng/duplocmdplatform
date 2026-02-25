@@ -4,15 +4,19 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import require_service_auth
-from app.models import CI, AuditEvent, Relationship
+from app.models import CI, AuditEvent, Identity, Relationship
 from app.schemas import (
     AuditEventResponse,
+    CIDetailResponse,
+    CIDriftResponse,
     CIGraphResponse,
     CIResponse,
+    IdentityResponse,
     PaginatedCIResponse,
     PickerCIResponse,
     RelationshipResponse,
 )
+from app.services.drift import compute_ci_drift
 
 router = APIRouter(tags=["cis"], dependencies=[Depends(require_service_auth)])
 
@@ -112,12 +116,20 @@ def get_ci_graph(ci_id: str, db: Session = Depends(get_db)) -> CIGraphResponse:
 
 
 @router.get("/cis/{ci_id}/audit", response_model=list[AuditEventResponse])
-def get_ci_audit(ci_id: str, db: Session = Depends(get_db)) -> list[AuditEventResponse]:
+def get_ci_audit(
+    ci_id: str,
+    limit: int = Query(default=100, ge=1, le=5000),
+    db: Session = Depends(get_db),
+) -> list[AuditEventResponse]:
     ci = db.get(CI, ci_id)
     if not ci:
         raise HTTPException(status_code=404, detail="CI not found")
 
-    events = list(db.scalars(select(AuditEvent).where(AuditEvent.ci_id == ci_id).order_by(AuditEvent.created_at.desc())))
+    events = list(
+        db.scalars(
+            select(AuditEvent).where(AuditEvent.ci_id == ci_id).order_by(AuditEvent.created_at.desc()).limit(limit)
+        )
+    )
     return [
         AuditEventResponse(
             id=event.id,
@@ -128,6 +140,70 @@ def get_ci_audit(ci_id: str, db: Session = Depends(get_db)) -> list[AuditEventRe
         )
         for event in events
     ]
+
+
+@router.get("/cis/{ci_id}/identities", response_model=list[IdentityResponse])
+def get_ci_identities(ci_id: str, db: Session = Depends(get_db)) -> list[IdentityResponse]:
+    ci = db.get(CI, ci_id)
+    if not ci:
+        raise HTTPException(status_code=404, detail="CI not found")
+
+    identities = list(db.scalars(select(Identity).where(Identity.ci_id == ci_id).order_by(Identity.created_at.asc())))
+    return [
+        IdentityResponse(
+            scheme=identity.scheme,
+            value=identity.value,
+            created_at=identity.created_at,
+        )
+        for identity in identities
+    ]
+
+
+@router.get("/cis/{ci_id}/detail", response_model=CIDetailResponse)
+def get_ci_detail(ci_id: str, db: Session = Depends(get_db)) -> CIDetailResponse:
+    ci = db.get(CI, ci_id)
+    if not ci:
+        raise HTTPException(status_code=404, detail="CI not found")
+
+    identities = list(db.scalars(select(Identity).where(Identity.ci_id == ci_id).order_by(Identity.created_at.asc())))
+    upstream = list(db.scalars(select(Relationship).where(Relationship.target_ci_id == ci_id)))
+    downstream = list(db.scalars(select(Relationship).where(Relationship.source_ci_id == ci_id)))
+    events = list(
+        db.scalars(select(AuditEvent).where(AuditEvent.ci_id == ci_id).order_by(AuditEvent.created_at.desc()).limit(50))
+    )
+
+    return CIDetailResponse(
+        ci=_to_ci_response(ci),
+        identities=[
+            IdentityResponse(
+                scheme=identity.scheme,
+                value=identity.value,
+                created_at=identity.created_at,
+            )
+            for identity in identities
+        ],
+        upstream=[_to_rel_response(rel) for rel in upstream],
+        downstream=[_to_rel_response(rel) for rel in downstream],
+        recent_audit=[
+            AuditEventResponse(
+                id=event.id,
+                ci_id=event.ci_id,
+                event_type=event.event_type,
+                payload=event.payload,
+                created_at=event.created_at,
+            )
+            for event in events
+        ],
+    )
+
+
+@router.get("/cis/{ci_id}/drift", response_model=CIDriftResponse)
+def get_ci_drift(ci_id: str, db: Session = Depends(get_db)) -> CIDriftResponse:
+    ci = db.get(CI, ci_id)
+    if not ci:
+        raise HTTPException(status_code=404, detail="CI not found")
+    drift = compute_ci_drift(db, ci)
+    return CIDriftResponse(**drift)
 
 
 @router.get("/pickers/cis", response_model=list[PickerCIResponse])

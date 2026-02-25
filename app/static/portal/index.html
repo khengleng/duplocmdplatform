@@ -14,6 +14,10 @@
       <div>
         <p class="eyebrow">Single Source Of Truth</p>
         <h1>Unified CMDB Portal</h1>
+        <p class="subhead">
+          Principal: <span id="authPrincipal" class="mono">-</span>
+          <span id="authScope" class="badge">unknown</span>
+        </p>
       </div>
       <div class="token-box">
         <input id="tokenInput" type="password" placeholder="Paste service token" />
@@ -44,11 +48,11 @@
             Limit
             <input id="syncLimit" type="number" min="1" max="5000" value="200" />
           </label>
-          <button id="runNetboxBtn" class="btn btn-accent">Run NetBox Import (Async)</button>
-          <button id="runBackstageBtn" class="btn btn-accent">Run Backstage Sync (Async)</button>
-          <button id="triggerNetboxScheduleBtn" class="btn">Trigger NetBox Schedule</button>
-          <button id="triggerBackstageScheduleBtn" class="btn">Trigger Backstage Schedule</button>
-          <button id="runLifecycleBtn" class="btn">Run Lifecycle</button>
+          <button id="runNetboxBtn" class="btn btn-accent operator-action">Run NetBox Import (Async)</button>
+          <button id="runBackstageBtn" class="btn btn-accent operator-action">Run Backstage Sync (Async)</button>
+          <button id="triggerNetboxScheduleBtn" class="btn operator-action">Trigger NetBox Schedule</button>
+          <button id="triggerBackstageScheduleBtn" class="btn operator-action">Trigger Backstage Schedule</button>
+          <button id="runLifecycleBtn" class="btn operator-action">Run Lifecycle</button>
         </div>
         <div class="split">
           <div>
@@ -76,6 +80,54 @@
             </tr>
           </thead>
           <tbody id="ciRows"></tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h2>CI Detail + Drift</h2>
+        <div class="split">
+          <div>
+            <h3>Selected CI</h3>
+            <pre id="ciDetail">Select a CI row to inspect details.</pre>
+            <h3>Identities</h3>
+            <pre id="ciIdentities">-</pre>
+          </div>
+          <div>
+            <h3>Drift (CMDB vs NetBox vs Backstage)</h3>
+            <pre id="ciDrift">-</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Relationship Manager</h2>
+        <div class="actions">
+          <label>
+            Source CI
+            <input id="relSourceCiId" type="text" placeholder="source ci id" />
+          </label>
+          <label>
+            Target CI
+            <input id="relTargetCiId" type="text" placeholder="target ci id" />
+          </label>
+          <label>
+            Relation Type
+            <input id="relType" type="text" value="depends_on" />
+          </label>
+          <button id="createRelationshipBtn" class="btn operator-action">Create Relationship</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Source CI</th>
+              <th>Target CI</th>
+              <th>Type</th>
+              <th>Source</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="relationshipRows"></tbody>
         </table>
       </section>
 

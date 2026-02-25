@@ -76,6 +76,35 @@ h1 {
   font-size: 1.8rem;
 }
 
+.subhead {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #f4f7fb;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.badge.operator {
+  background: #ecfdf5;
+  border-color: #b7ebd0;
+  color: var(--ok);
+}
+
+.badge.viewer {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: var(--warn);
+}
+
 h2 {
   margin: 0 0 14px;
   font-size: 1.1rem;
@@ -214,6 +243,18 @@ pre {
 table {
   width: 100%;
   border-collapse: collapse;
+}
+
+tbody tr.clickable-row {
+  cursor: pointer;
+}
+
+tbody tr.clickable-row:hover {
+  background: #f5f9ff;
+}
+
+tbody tr.clickable-row.selected {
+  background: #e8f2ff;
 }
 
 th,

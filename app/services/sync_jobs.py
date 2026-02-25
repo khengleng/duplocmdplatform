@@ -5,6 +5,7 @@ from datetime import timedelta
 from datetime import timezone
 from typing import Any
 
+import httpx
 from sqlalchemy import and_, select, update
 from sqlalchemy.orm import Session
 
@@ -305,6 +306,18 @@ def _complete_job_failure(job_id: str, error_message: str) -> None:
         db.commit()
 
 
+def _safe_job_error(exc: Exception) -> str:
+    if isinstance(exc, ValueError):
+        candidate = str(exc).strip().lower()
+        if candidate and len(candidate) <= 80 and all(ch.islower() or ch.isdigit() or ch in {"_", "-", "."} for ch in candidate):
+            return candidate
+    if isinstance(exc, httpx.HTTPStatusError):
+        return "upstream_http_error"
+    if isinstance(exc, httpx.HTTPError):
+        return "upstream_request_error"
+    return "job_execution_failed"
+
+
 def _execute_claimed_job(job: SyncJob) -> None:
     try:
         with job_session() as run_db:
@@ -330,7 +343,7 @@ def _execute_claimed_job(job: SyncJob) -> None:
                 run_db.commit()
     except Exception as exc:
         logger.exception("Sync job execution failed", extra={"job_id": job.id, "job_type": job.job_type})
-        _complete_job_failure(job.id, str(exc))
+        _complete_job_failure(job.id, _safe_job_error(exc))
         return
 
     _complete_job_success(job.id, result)
